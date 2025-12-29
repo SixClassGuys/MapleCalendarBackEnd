@@ -25,7 +25,9 @@ local.properties
 bin/
 # 만약 비밀번호 전용 파일을 만든다면 아래처럼 추가
 application-secret.yml
+application-secret.properties
 application-local.yml
+application-local.properties
 
 ### 시스템 파일 ###
 .DS_Store
