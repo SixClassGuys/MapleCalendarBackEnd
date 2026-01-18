@@ -24,4 +24,5 @@ COPY --from=build /app/build/libs/*.jar app.jar
 EXPOSE 8080
 
 # 애플리케이션 실행
-ENTRYPOINT ["java", "-Dspring.profiles.active=secret", "-jar", "app.jar"]
+# 외부 설정 파일 경로 지정 (볼륨 마운트된 resources 디렉토리 사용)
+ENTRYPOINT ["java", "-Dspring.profiles.active=secret", "-Dspring.config.additional-location=file:/app/resources/", "-jar", "app.jar"]
