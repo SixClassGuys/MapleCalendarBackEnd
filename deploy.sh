@@ -97,11 +97,13 @@ docker tag "$FULL_IMAGE_NAME" "$APP_NAME:latest"
 
 # 컨테이너 실행
 echo -e "${YELLOW}[6/6] 컨테이너 시작 중...${NC}"
+RESOURCES_DIR="$PROJECT_DIR/src/main/resources"
 docker run -d \
     --name "$CONTAINER_NAME" \
     --network host \
     -p 8080:8080 \
     --restart unless-stopped \
+    -v "$RESOURCES_DIR:/app/resources:ro" \
     "$APP_NAME:latest"
 
 # 컨테이너 상태 확인
