@@ -90,5 +90,6 @@ jobs:
             export IMAGE_TAG=${IMAGE_TAG}
             cd /home/ubuntu/MapleCalendarBackEnd
             git pull origin main
+            chmod +x deploy.sh
             ./deploy.sh
           EOF
