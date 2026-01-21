@@ -64,6 +64,7 @@ class AlarmService(
             thumbnailUrl = event.thumbnailUrl,
             startDate = event.startDate.toString(),
             endDate = event.endDate.toString(),
+            eventTypes = event.eventTypes.map { it.name },
             isRegistered = savedAlarm.isEnabled,
             alarmTimes = savedAlarm.alarmTimes.filter { !it.isSent }
                 .map { it.alarmTime.toString() }
@@ -93,6 +94,7 @@ class AlarmService(
             thumbnailUrl = event.thumbnailUrl,
             startDate = event.startDate.toString(),
             endDate = event.endDate.toString(),
+            event.eventTypes.map { it.name },
             isRegistered = savedAlarm.isEnabled,
             alarmTimes = savedAlarm.alarmTimes.filter { !it.isSent }
                 .map { it.alarmTime.toString() }
