@@ -103,6 +103,8 @@ RESOURCES_DIR="$PROJECT_DIR/src/main/resources"
 docker run -d \
     --name "$CONTAINER_NAME" \
     -e ENCRYPTION_KEY=$ENCRYPTION_KEY \
+    -e TZ=Asia/Seoul \
+    -v /etc/localtime:/etc/localtime:ro \
     --network host \
     -p 8080:8080 \
     --restart unless-stopped \
