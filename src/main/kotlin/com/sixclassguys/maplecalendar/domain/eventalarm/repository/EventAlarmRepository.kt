@@ -3,7 +3,9 @@ package com.sixclassguys.maplecalendar.domain.eventalarm.repository
 import com.sixclassguys.maplecalendar.domain.event.entity.Event
 import com.sixclassguys.maplecalendar.domain.eventalarm.entity.EventAlarm
 import com.sixclassguys.maplecalendar.domain.member.entity.Member
+import jakarta.persistence.LockModeType
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Lock
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
 import org.springframework.stereotype.Repository
@@ -16,10 +18,11 @@ interface EventAlarmRepository : JpaRepository<EventAlarm, Long> {
      * 1. 스케줄러용: 현재 시각에 발송해야 할 알람들 조회
      * isEnabled가 true이고, 아직 발송되지 않았으며(isSent = false), 시간이 도래한 것
      */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
         SELECT DISTINCT a 
         FROM EventAlarm a 
-        JOIN a.alarmTimes t 
+        JOIN FETCH a.alarmTimes t 
         WHERE t.alarmTime <= :now 
           AND t.isSent = false 
     """)

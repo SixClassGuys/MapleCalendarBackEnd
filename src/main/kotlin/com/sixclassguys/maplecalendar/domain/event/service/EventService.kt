@@ -3,7 +3,7 @@ package com.sixclassguys.maplecalendar.domain.event.service
 import com.sixclassguys.maplecalendar.domain.event.dto.EventResponse
 import com.sixclassguys.maplecalendar.domain.event.entity.Event
 import com.sixclassguys.maplecalendar.domain.eventalarm.repository.EventAlarmRepository
-import com.sixclassguys.maplecalendar.domain.member.repository.MemberRepository
+import com.sixclassguys.maplecalendar.domain.member.service.MemberService
 import com.sixclassguys.maplecalendar.infrastructure.external.NexonApiClient
 import com.sixclassguys.maplecalendar.infrastructure.external.dto.EventNotice
 import com.sixclassguys.maplecalendar.infrastructure.persistence.event.EventRepository
@@ -20,7 +20,7 @@ import java.time.format.DateTimeFormatter
 class EventService(
     private val nexonApiClient: NexonApiClient,
     private val eventRepository: EventRepository,
-    private val memberRepository: MemberRepository,
+    private val memberService: MemberService,
     private val eventAlarmRepository: EventAlarmRepository
 ) {
 
@@ -31,7 +31,7 @@ class EventService(
         if (events.isEmpty()) return emptyList()
 
         // 1. API Key가 없거나 멤버가 없으면 알람 정보 없이 바로 반환
-        val member = apiKey?.let { memberRepository.findByNexonApiKey(it) }
+        val member = apiKey?.let { memberService.findByRawKey(it) }
         if (member == null) {
             return events.map { it.toDefaultResponse() }
         }
@@ -58,6 +58,7 @@ class EventService(
                 thumbnailUrl = event.thumbnailUrl,
                 startDate = event.startDate.toString(),
                 endDate = event.endDate.toString(),
+                eventTypes = event.eventTypes.map { it.name },
                 isRegistered = finalIsRegistered,
                 alarmTimes = if (!isGlobalEnabled) emptyList()
                 else userAlarm?.alarmTimes?.filter { !it.isSent }
@@ -75,6 +76,7 @@ class EventService(
         thumbnailUrl = thumbnailUrl,
         startDate = startDate.toString(),
         endDate = endDate.toString(),
+        eventTypes = eventTypes.map { it.name },
         isRegistered = false,
         alarmTimes = emptyList()
     )

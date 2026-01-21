@@ -12,6 +12,7 @@ data class EventResponse(
 
     val startDate: String,
     val endDate: String,
+    val eventTypes: List<String> = emptyList(),
     val isRegistered: Boolean = false, // 이 이벤트에 알람을 설정했는가?
     val alarmTimes: List<String> = emptyList() // 설정된 구체적인 시간들
 )

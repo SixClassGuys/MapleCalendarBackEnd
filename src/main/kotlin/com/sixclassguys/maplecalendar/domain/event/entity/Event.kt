@@ -4,6 +4,9 @@ import com.sixclassguys.maplecalendar.domain.eventalarm.entity.EventAlarm
 import jakarta.persistence.CascadeType
 import jakarta.persistence.Entity
 import jakarta.persistence.Id
+import jakarta.persistence.JoinColumn
+import jakarta.persistence.JoinTable
+import jakarta.persistence.ManyToMany
 import jakarta.persistence.OneToMany
 import jakarta.persistence.Table
 import java.time.LocalDateTime
@@ -22,7 +25,16 @@ class Event(
 
     // 💡 설정된 알람 시간들 (별도 테이블로 관리됨)
     @OneToMany(mappedBy = "event", cascade = [CascadeType.ALL], orphanRemoval = true)
-    val registeredAlarms: MutableList<EventAlarm> = mutableListOf()
+    val registeredAlarms: MutableList<EventAlarm> = mutableListOf(),
+
+    // 🚀 다대다 관계 설정
+    @ManyToMany
+    @JoinTable(
+        name = "event_type_mapping",
+        joinColumns = [JoinColumn(name = "event_id")],
+        inverseJoinColumns = [JoinColumn(name = "event_type_id")]
+    )
+    var eventTypes: MutableSet<EventType> = mutableSetOf()
 ) {
 
     fun updateIfChanged(
