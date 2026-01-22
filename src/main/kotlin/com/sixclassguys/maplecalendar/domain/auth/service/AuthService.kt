@@ -3,21 +3,16 @@ package com.sixclassguys.maplecalendar.domain.auth.service
 import com.sixclassguys.maplecalendar.domain.auth.dto.AccountCharacterResponse
 import com.sixclassguys.maplecalendar.domain.auth.dto.AutoLoginResponse
 import com.sixclassguys.maplecalendar.domain.auth.dto.LoginResponse
-import com.sixclassguys.maplecalendar.domain.member.entity.Member
 import com.sixclassguys.maplecalendar.domain.member.service.MemberService
 import com.sixclassguys.maplecalendar.domain.notification.dto.TokenRequest
 import com.sixclassguys.maplecalendar.domain.notification.service.NotificationService
+import com.sixclassguys.maplecalendar.domain.util.getZonedDateTime
 import com.sixclassguys.maplecalendar.global.exception.InvalidApiKeyException
 import com.sixclassguys.maplecalendar.infrastructure.external.NexonApiClient
-import com.sixclassguys.maplecalendar.infrastructure.external.dto.DojangRanking
-import com.sixclassguys.maplecalendar.infrastructure.external.dto.Ranking
-import com.sixclassguys.maplecalendar.infrastructure.external.dto.UnionResponse
 import kotlinx.coroutines.coroutineScope
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
-import java.time.LocalDate
-import java.time.ZoneId
 
 @Service
 class AuthService(
@@ -96,12 +91,10 @@ class AuthService(
             // 3. 넥슨 API를 통해 해당 OCID의 최신 정보 조회 (이미지, 레벨 등)
             val characterBasic = nexonApiClient.getCharacterBasic(apiKey, ocid)
 
-            val todayKst = LocalDate.now(ZoneId.of("Asia/Seoul"))
-
-            val overAllRanking = nexonApiClient.getOverAllRanking(apiKey, ocid, todayKst)
+            val overAllRanking = nexonApiClient.getOverAllRanking(apiKey, ocid, getZonedDateTime())
             val worldName = overAllRanking?.ranking[0]?.worldName
             val serverRanking = worldName?.let {
-                nexonApiClient.getServerRanking(apiKey, ocid, todayKst, it)
+                nexonApiClient.getServerRanking(apiKey, ocid, getZonedDateTime(), it)
             }
             val union = nexonApiClient.getUnionInfo(apiKey, ocid)
             val dojang = nexonApiClient.getDojangInfo(apiKey, ocid)
