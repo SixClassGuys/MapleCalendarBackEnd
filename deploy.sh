@@ -103,6 +103,8 @@ RESOURCES_DIR="$PROJECT_DIR/src/main/resources"
 docker run -d \
     --name "$CONTAINER_NAME" \
     -e ENCRYPTION_KEY=$ENCRYPTION_KEY \
+    -e GOOGLE_OAUTH_CLIENT_IDS_0=$GOOGLE_OAUTH_CLIENT_IDS_0 \
+    -e GOOGLE_OAUTH_CLIENT_IDS_1=$GOOGLE_OAUTH_CLIENT_IDS_1 \
     -e TZ=Asia/Seoul \
     -v /etc/localtime:/etc/localtime:ro \
     --network host \
