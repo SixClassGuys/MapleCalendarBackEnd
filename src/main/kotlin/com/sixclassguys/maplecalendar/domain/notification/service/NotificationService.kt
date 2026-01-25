@@ -33,42 +33,42 @@ class NotificationService(
 
     private val log = LoggerFactory.getLogger(javaClass)
 
-    private fun sendFcmMessage(alarmSetting: EventAlarm) {
-        val member = alarmSetting.member
-        val event = alarmSetting.event
-
-        val tokensFromDb = member.id?.let { notificationTokenRepository.findAllByMemberId(it) }
-        tokensFromDb?.let { log.info("📢 [검증] 유저 ID: ${member.id}, DB에 등록된 실제 토큰 개수: ${it.size}") }
-
-        // 💡 남은 일수 계산
-        val daysLeft = ChronoUnit.DAYS.between(LocalDate.now(), event.endDate.toLocalDate())
-        val dDayText = when {
-            daysLeft > 0L -> "${daysLeft}일 남았습니다!"
-            daysLeft == 0L -> "오늘 종료됩니다! 서두르세요!"
-            else -> "종료되었습니다."
-        }
-
-        member.tokens.forEach { tokenEntity ->
-            val message = Message.builder()
-                .setToken(tokenEntity.token)
-                .setNotification(
-                    Notification.builder()
-                        .setTitle("⏰ 설정하신 알림 시간입니다!")
-                        .setBody("[${event.title}] $dDayText") // 💡 남은 기간 표시
-                        .build()
-                )
-                .putData("eventId", event.id.toString())
-                .putData("type", "EVENT_ALARM")
-                .build()
-
-            try {
-                FirebaseMessaging.getInstance().send(message)
-                log.info("개별 알람 발송 성공: 유저=${member.id}, 이벤트=${event.id}")
-            } catch (e: Exception) {
-                log.error("푸시 실패: ${tokenEntity.token.take(10)}... - ${e.message}")
-            }
-        }
-    }
+//    private fun sendFcmMessage(alarmSetting: EventAlarm) {
+//        val member = alarmSetting.member
+//        val event = alarmSetting.event
+//
+//        val tokensFromDb = member.id?.let { notificationTokenRepository.findAllByMemberId(it) }
+//        tokensFromDb?.let { log.info("📢 [검증] 유저 ID: ${member.id}, DB에 등록된 실제 토큰 개수: ${it.size}") }
+//
+//        // 💡 남은 일수 계산
+//        val daysLeft = ChronoUnit.DAYS.between(LocalDate.now(), event.endDate.toLocalDate())
+//        val dDayText = when {
+//            daysLeft > 0L -> "${daysLeft}일 남았습니다!"
+//            daysLeft == 0L -> "오늘 종료됩니다! 서두르세요!"
+//            else -> "종료되었습니다."
+//        }
+//
+//        member.tokens.forEach { tokenEntity ->
+//            val message = Message.builder()
+//                .setToken(tokenEntity.token)
+//                .setNotification(
+//                    Notification.builder()
+//                        .setTitle("⏰ 설정하신 알림 시간입니다!")
+//                        .setBody("[${event.title}] $dDayText") // 💡 남은 기간 표시
+//                        .build()
+//                )
+//                .putData("eventId", event.id.toString())
+//                .putData("type", "EVENT_ALARM")
+//                .build()
+//
+//            try {
+//                FirebaseMessaging.getInstance().send(message)
+//                log.info("개별 알람 발송 성공: 유저=${member.id}, 이벤트=${event.id}")
+//            } catch (e: Exception) {
+//                log.error("푸시 실패: ${tokenEntity.token.take(10)}... - ${e.message}")
+//            }
+//        }
+//    }
 
     fun registerToken(request: TokenRequest, memberId: Long? = null) {
         val existingToken = notificationTokenRepository.findByToken(request.token)
@@ -144,36 +144,36 @@ class NotificationService(
      * 사용자가 개별 설정한 알람 시간에 맞춰 푸시 발송
      * 스케줄러에 의해 매 분(1분 단위) 호출됨
      */
-    fun sendCustomEventNotifications() {
-        val now = LocalDateTime.now().withSecond(0).withNano(0)
+//    fun sendCustomEventNotifications() {
+//        val now = LocalDateTime.now().withSecond(0).withNano(0)
+//
+//        // 💡 쿼리 단계에서 isEnabled = true인 것만 가져오도록 수정 (Repository 쿼리 확인 필요)
+//        val activeAlarms = eventAlarmRepository.findAllToSendMessage(now)
+//
+//        activeAlarms.forEach { alarmSetting ->
+//            val targets = alarmSetting.alarmTimes.filter { it.alarmTime <= now && !it.isSent }
+//
+//            targets.forEach { target ->
+//                target.isSent = true
+//
+//                // 3. 💡 [조건부 발송]
+//                // - 알람 설정이 켜져 있고(isEnabled)
+//                // - 정확히 '현재 시각'에 해당하는 알람인 경우에만 실제로 발송
+//                if (alarmSetting.isEnabled && target.alarmTime == now) {
+//                    sendFcmMessage(alarmSetting) // 실제 FCM 발송 로직 분리
+//                } else if (target.alarmTime < now) {
+//                    log.info("과거 알람(시간: ${target.alarmTime})을 미발송 처리하고 완료 상태로 갱신합니다. 유저: ${alarmSetting.member.id}")
+//                }
+//            }
+//        }
+//    }
 
-        // 💡 쿼리 단계에서 isEnabled = true인 것만 가져오도록 수정 (Repository 쿼리 확인 필요)
-        val activeAlarms = eventAlarmRepository.findAllToSendMessage(now)
-
-        activeAlarms.forEach { alarmSetting ->
-            val targets = alarmSetting.alarmTimes.filter { it.alarmTime <= now && !it.isSent }
-
-            targets.forEach { target ->
-                target.isSent = true
-
-                // 3. 💡 [조건부 발송]
-                // - 알람 설정이 켜져 있고(isEnabled)
-                // - 정확히 '현재 시각'에 해당하는 알람인 경우에만 실제로 발송
-                if (alarmSetting.isEnabled && target.alarmTime == now) {
-                    sendFcmMessage(alarmSetting) // 실제 FCM 발송 로직 분리
-                } else if (target.alarmTime < now) {
-                    log.info("과거 알람(시간: ${target.alarmTime})을 미발송 처리하고 완료 상태로 갱신합니다. 유저: ${alarmSetting.member.id}")
-                }
-            }
-        }
-    }
-
-    @Transactional
-    fun unregisterToken(apiKey: String, token: String) {
-        val member = memberService.findByRawKey(apiKey)
-            ?: return // 유저가 없으면 이미 로그아웃된 것으로 간주
-
-        notificationTokenRepository.deleteByMemberAndToken(member, token)
-        log.info("토큰 삭제 완료: 유저=${member.id}, 토큰=${token.take(10)}...")
-    }
+//    @Transactional
+//    fun unregisterToken(apiKey: String, token: String) {
+//        val member = memberService.findByRawKey(apiKey)
+//            ?: return // 유저가 없으면 이미 로그아웃된 것으로 간주
+//
+//        notificationTokenRepository.deleteByMemberAndToken(member, token)
+//        log.info("토큰 삭제 완료: 유저=${member.id}, 토큰=${token.take(10)}...")
+//    }
 }

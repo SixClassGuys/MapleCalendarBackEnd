@@ -31,7 +31,9 @@ class EventService(
         if (events.isEmpty()) return emptyList()
 
         // 1. API Key가 없거나 멤버가 없으면 알람 정보 없이 바로 반환
-        val member = apiKey?.let { memberService.findByRawKey(it) }
+//        val member = apiKey?.let { memberService.findByRawKey(it) }
+        // 여기 나중에 다시 수정해야함
+        val member = apiKey?.let { memberService.findByProviderAndProviderId(it,it) }
         if (member == null) {
             return events.map { it.toDefaultResponse() }
         }
