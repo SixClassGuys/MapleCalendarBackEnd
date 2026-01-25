@@ -15,22 +15,22 @@ class MemberController(
     private val memberService: MemberService
 ) {
 
-    @PatchMapping("/representative")
-    fun setRepresentative(
-        @RequestHeader("x-nxopen-api-key") apiKey: String,
-        @RequestBody request: RepresentativeOcidRequest
-    ): ResponseEntity<Unit> {
-        memberService.updateRepresentativeCharacter(apiKey, request.ocid)
-
-        return ResponseEntity.noContent().build() // 성공 시 204 No Content 반환
-    }
-
-    @PatchMapping("/alarm-status")
-    fun updateAlarmStatus(
-        @RequestHeader("x-nxopen-api-key") apiKey: String
-    ): ResponseEntity<Boolean> {
-        val isGlobalAlarmEnabled = memberService.updateGlobalAlarmStatus(apiKey)
-
-        return ResponseEntity.ok(isGlobalAlarmEnabled)
-    }
+//    @PatchMapping("/representative")
+//    fun setRepresentative(
+//        @RequestHeader("x-nxopen-api-key") apiKey: String,
+//        @RequestBody request: RepresentativeOcidRequest
+//    ): ResponseEntity<Unit> {
+//        memberService.updateRepresentativeCharacter(apiKey, request.ocid)
+//
+//        return ResponseEntity.noContent().build() // 성공 시 204 No Content 반환
+//    }
+//
+//    @PatchMapping("/alarm-status")
+//    fun updateAlarmStatus(
+//        @RequestHeader("x-nxopen-api-key") apiKey: String
+//    ): ResponseEntity<Boolean> {
+//        val isGlobalAlarmEnabled = memberService.updateGlobalAlarmStatus(apiKey)
+//
+//        return ResponseEntity.ok(isGlobalAlarmEnabled)
+//    }
 }

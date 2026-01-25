@@ -1,131 +1,200 @@
 package com.sixclassguys.maplecalendar.domain.auth.service
 
+import com.google.api.client.googleapis.auth.oauth2.GoogleIdTokenVerifier
+import com.google.api.client.http.javanet.NetHttpTransport
+import com.google.api.client.json.gson.GsonFactory
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseToken
 import com.sixclassguys.maplecalendar.domain.auth.dto.AccountCharacterResponse
 import com.sixclassguys.maplecalendar.domain.auth.dto.AutoLoginResponse
 import com.sixclassguys.maplecalendar.domain.auth.dto.LoginResponse
+import com.sixclassguys.maplecalendar.domain.member.entity.Member
+import com.sixclassguys.maplecalendar.domain.member.repository.MemberRepository
 import com.sixclassguys.maplecalendar.domain.member.service.MemberService
 import com.sixclassguys.maplecalendar.domain.notification.dto.TokenRequest
 import com.sixclassguys.maplecalendar.domain.notification.service.NotificationService
 import com.sixclassguys.maplecalendar.domain.util.getZonedDateTime
+import com.sixclassguys.maplecalendar.global.config.GoogleOAuthProperties
 import com.sixclassguys.maplecalendar.global.exception.InvalidApiKeyException
 import com.sixclassguys.maplecalendar.infrastructure.external.NexonApiClient
 import kotlinx.coroutines.coroutineScope
+import lombok.Value
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.LocalDateTime
 
 @Service
 class AuthService(
     private val nexonApiClient: NexonApiClient,
     private val memberService: MemberService,
-    private val notificationService: NotificationService
+    private val memberRepository: MemberRepository,
+    private val notificationService: NotificationService,
+    private val googleOAuthProperties: GoogleOAuthProperties
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
 
+//    @Transactional
+//    suspend fun loginAndGetCharacters(apiKey: String): LoginResponse = coroutineScope {
+//        // 1. DB 먼저 확인 (이미 등록된 유저인지)
+//        var existingMember = memberService.findByRawKey(apiKey)
+//
+//        // 2. 이미 대표 캐릭터가 설정된 경우, 바로 반환
+//        if (existingMember?.representativeOcid != null) {
+//            return@coroutineScope LoginResponse(
+//                representativeOcid = existingMember.representativeOcid,
+//                isGlobalAlarmEnabled = existingMember.isGlobalAlarmEnabled
+//            )
+//        }
+//
+//        // 3. 넥슨 API 호출 (조회 성공 시에만 다음 단계 진행)
+//        val nexonAccounts = nexonApiClient.getCharacters(apiKey)
+//
+//        // 4. 가공 전 데이터 검증 (가져오는 데 실패했거나 데이터가 없는 경우)
+//        if (nexonAccounts.isEmpty()) {
+//            throw InvalidApiKeyException()
+//        }
+//
+//        // 5. Member 엔티티 저장 또는 조회 (Upsert 로직)
+//        // API Key를 고유 식별자로 사용하여 유저 관리
+//        if (existingMember == null) {
+//            existingMember = memberService.saveNewMember(apiKey)
+//        }
+//
+//        // 6. 모든 계정의 캐릭터를 평면화
+//        val allCharacters = nexonAccounts.flatMap { it.characters }
+//
+//        // 7. 앱에 전달할 형태로 데이터 가공 (각 계정의 캐릭터 리스트를 월드별로 그룹화)
+//        val characters = allCharacters.map { character ->
+//            AccountCharacterResponse(
+//                ocid = character.ocid,
+//                characterName = character.characterName,
+//                worldName = character.worldName,
+//                characterClass = character.characterClass,
+//                characterLevel = character.characterLevel
+//            )
+//        }.groupBy { it.worldName } // 월드별로 그룹핑하여 전달
+//
+//        LoginResponse(characters = characters)
+//    }
+
+//    fun processAutoLogin(apiKey: String, request: TokenRequest): AutoLoginResponse {
+//        // 1. DB에서 해당 API Key를 가진 유저 조회
+//        val user = memberService.findByRawKey(apiKey)
+//            ?: return AutoLoginResponse(false, "존재하지 않는 회원입니다.")
+//
+//        try {
+//            notificationService.registerToken(
+//                request = TokenRequest(token = request.token, platform = request.platform),
+//                memberId = user.id
+//            )
+//            log.info("유저(${user.id})의 FCM 토큰 업데이트 성공")
+//        } catch (e: Exception) {
+//            log.error("FCM 토큰 업데이트 실패: ${e.message}")
+//            // 토큰 업데이트 실패가 로그인을 막으면 안 되므로 로그만 남깁니다.
+//        }
+//
+//        // 2. 대표 캐릭터 OCID가 설정되어 있는지 확인
+//        val ocid = user.representativeOcid
+//            ?: return AutoLoginResponse(false, "대표 캐릭터가 없습니다.")
+//
+//        return try {
+//            // 3. 넥슨 API를 통해 해당 OCID의 최신 정보 조회 (이미지, 레벨 등)
+//            val characterBasic = nexonApiClient.getCharacterBasic(apiKey, ocid)
+//
+//            val overAllRanking = nexonApiClient.getOverAllRanking(apiKey, ocid, getZonedDateTime())
+//            val worldName = overAllRanking?.ranking[0]?.worldName
+//            val serverRanking = worldName?.let {
+//                nexonApiClient.getServerRanking(apiKey, ocid, getZonedDateTime(), it)
+//            }
+//            val union = nexonApiClient.getUnionInfo(apiKey, ocid)
+//            val dojang = nexonApiClient.getDojangInfo(apiKey, ocid)
+//
+//            log.info("캐릭터 정보: $characterBasic")
+//
+//            val customImage = characterBasic?.let {
+//                if (it.characterImage != null) {
+//                    val baseUrl = characterBasic.characterImage
+//                    // 쿼리 스트링 조합
+//                    // 예: baseUrl?action=stand1&emotion=default&wmotion=default
+////                    "$baseUrl?action=${user.charAction}&emotion=${user.charEmotion}&wmotion=${user.charWeaponMotion}"
+//                } else {
+//                    null
+//                }
+//            }
+//
+//            AutoLoginResponse(
+//                isSuccess = true,
+//                message = "자동 로그인 성공",
+////                characterBasic = characterBasic?.copy(characterImage = customImage),
+//                isGlobalAlarmEnabled = user.isGlobalAlarmEnabled,
+//                characterPopularity = overAllRanking?.ranking[0]?.characterPopularity,
+//                characterOverallRanking = overAllRanking?.ranking[0],
+//                characterServerRanking = serverRanking?.ranking[0],
+//                characterUnionLevel = union,
+//                characterDojang = dojang
+//            )
+//        } catch (e: Exception) {
+//            // 넥슨 API 키가 만료되었거나 서버 통신 오류 시
+//            AutoLoginResponse(false, "캐릭터 정보를 가져오는데 실패했습니다: ${e.message}")
+//        }
+//    }
+
     @Transactional
-    suspend fun loginAndGetCharacters(apiKey: String): LoginResponse = coroutineScope {
-        // 1. DB 먼저 확인 (이미 등록된 유저인지)
-        var existingMember = memberService.findByRawKey(apiKey)
+    fun loginWithGoogle(idToken: String): Member {
+        // 1️⃣ Firebase ID 토큰 검증
+//        val decodedToken: FirebaseToken = FirebaseAuth.getInstance().verifyIdToken(idToken)
+//        val firebaseUid = decodedToken.uid
+//        val email = decodedToken.email ?: throw IllegalArgumentException("Email not found")
+//
+//        return loginOrRegister(provider = "google", providerId = firebaseUid, email = email)
 
-        // 2. 이미 대표 캐릭터가 설정된 경우, 바로 반환
-        if (existingMember?.representativeOcid != null) {
-            return@coroutineScope LoginResponse(
-                representativeOcid = existingMember.representativeOcid,
-                isGlobalAlarmEnabled = existingMember.isGlobalAlarmEnabled
-            )
-        }
+        // Google 공식 검증기 설정
+        val verifier = GoogleIdTokenVerifier.Builder(NetHttpTransport(), GsonFactory())
+            .setAudience(googleOAuthProperties.clientIds)
+            .setIssuer("https://accounts.google.com")
+            .build()
 
-        // 3. 넥슨 API 호출 (조회 성공 시에만 다음 단계 진행)
-        val nexonAccounts = nexonApiClient.getCharacters(apiKey)
+        log.info("1231231${idToken}")
+        val googleIdToken = verifier.verify(idToken)
+            ?: throw IllegalArgumentException("Invalid Google Token")
 
-        // 4. 가공 전 데이터 검증 (가져오는 데 실패했거나 데이터가 없는 경우)
-        if (nexonAccounts.isEmpty()) {
-            throw InvalidApiKeyException()
-        }
+        val payload = googleIdToken.payload
+        val googleUid = payload.subject // 이게 providerId
+        val email = payload.email
 
-        // 5. Member 엔티티 저장 또는 조회 (Upsert 로직)
-        // API Key를 고유 식별자로 사용하여 유저 관리
-        if (existingMember == null) {
-            existingMember = memberService.saveNewMember(apiKey)
-        }
-
-        // 6. 모든 계정의 캐릭터를 평면화
-        val allCharacters = nexonAccounts.flatMap { it.characters }
-
-        // 7. 앱에 전달할 형태로 데이터 가공 (각 계정의 캐릭터 리스트를 월드별로 그룹화)
-        val characters = allCharacters.map { character ->
-            AccountCharacterResponse(
-                ocid = character.ocid,
-                characterName = character.characterName,
-                worldName = character.worldName,
-                characterClass = character.characterClass,
-                characterLevel = character.characterLevel
-            )
-        }.groupBy { it.worldName } // 월드별로 그룹핑하여 전달
-
-        LoginResponse(characters = characters)
+        return loginOrRegister(provider = "google", providerId = googleUid, email = email)
     }
 
-    fun processAutoLogin(apiKey: String, request: TokenRequest): AutoLoginResponse {
-        // 1. DB에서 해당 API Key를 가진 유저 조회
-        val user = memberService.findByRawKey(apiKey)
-            ?: return AutoLoginResponse(false, "존재하지 않는 회원입니다.")
+    @Transactional
+    fun loginWithApple(appleSub: String, email: String): Member {
+        // Apple 로그인은 ID 토큰 검증은 필요하지만 여기선 sub와 이메일만 사용
+        return loginOrRegister(provider = "apple", providerId = appleSub, email = email)
+    }
 
-        try {
-            notificationService.registerToken(
-                request = TokenRequest(token = request.token, platform = request.platform),
-                memberId = user.id
-            )
-            log.info("유저(${user.id})의 FCM 토큰 업데이트 성공")
-        } catch (e: Exception) {
-            log.error("FCM 토큰 업데이트 실패: ${e.message}")
-            // 토큰 업데이트 실패가 로그인을 막으면 안 되므로 로그만 남깁니다.
-        }
-
-        // 2. 대표 캐릭터 OCID가 설정되어 있는지 확인
-        val ocid = user.representativeOcid
-            ?: return AutoLoginResponse(false, "대표 캐릭터가 없습니다.")
-
-        return try {
-            // 3. 넥슨 API를 통해 해당 OCID의 최신 정보 조회 (이미지, 레벨 등)
-            val characterBasic = nexonApiClient.getCharacterBasic(apiKey, ocid)
-
-            val overAllRanking = nexonApiClient.getOverAllRanking(apiKey, ocid, getZonedDateTime())
-            val worldName = overAllRanking?.ranking[0]?.worldName
-            val serverRanking = worldName?.let {
-                nexonApiClient.getServerRanking(apiKey, ocid, getZonedDateTime(), it)
-            }
-            val union = nexonApiClient.getUnionInfo(apiKey, ocid)
-            val dojang = nexonApiClient.getDojangInfo(apiKey, ocid)
-
-            log.info("캐릭터 정보: $characterBasic")
-
-            val customImage = characterBasic?.let {
-                if (it.characterImage != null) {
-                    val baseUrl = characterBasic.characterImage
-                    // 쿼리 스트링 조합
-                    // 예: baseUrl?action=stand1&emotion=default&wmotion=default
-                    "$baseUrl?action=${user.charAction}&emotion=${user.charEmotion}&wmotion=${user.charWeaponMotion}"
-                } else {
-                    null
-                }
+    private fun loginOrRegister(provider: String, providerId: String, email: String): Member {
+        var member = memberRepository.findByProviderAndProviderId(provider, providerId)
+        if (member == null) {
+            // 이메일 중복 체크
+            val existing = memberRepository.findByEmail(email)
+            if (existing != null) {
+                throw IllegalArgumentException("Email already exists with a different provider")
             }
 
-            AutoLoginResponse(
-                isSuccess = true,
-                message = "자동 로그인 성공",
-                characterBasic = characterBasic?.copy(characterImage = customImage),
-                isGlobalAlarmEnabled = user.isGlobalAlarmEnabled,
-                characterPopularity = overAllRanking?.ranking[0]?.characterPopularity,
-                characterOverallRanking = overAllRanking?.ranking[0],
-                characterServerRanking = serverRanking?.ranking[0],
-                characterUnionLevel = union,
-                characterDojang = dojang
+            member = Member(
+                provider = provider,
+                providerId = providerId,
+                email = email,
+                lastLoginAt = LocalDateTime.now()
             )
-        } catch (e: Exception) {
-            // 넥슨 API 키가 만료되었거나 서버 통신 오류 시
-            AutoLoginResponse(false, "캐릭터 정보를 가져오는데 실패했습니다: ${e.message}")
+            memberRepository.save(member)
+        } else {
+            // 기존 회원이면 lastLoginAt 업데이트
+            member.lastLoginAt = LocalDateTime.now()
+            member.updatedAt = LocalDateTime.now()
+            memberRepository.save(member)
         }
+        return member
     }
 }
