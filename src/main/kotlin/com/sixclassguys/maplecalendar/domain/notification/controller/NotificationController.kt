@@ -23,13 +23,13 @@ class NotificationController(
         return ResponseEntity.ok().build()
     }
 
-    @DeleteMapping("/tokens")
-    fun unregisterToken(
-        @RequestHeader("x-nxopen-api-key") apiKey: String,
-        @RequestBody request: TokenRequest,
-    ): ResponseEntity<Unit> {
-        notificationService.unregisterToken(apiKey, request.token)
-
-        return ResponseEntity.ok().build()
-    }
+//    @DeleteMapping("/tokens")
+//    fun unregisterToken(
+//        @RequestHeader("x-nxopen-api-key") apiKey: String,
+//        @RequestBody request: TokenRequest,
+//    ): ResponseEntity<Unit> {
+//        notificationService.unregisterToken(apiKey, request.token)
+//
+//        return ResponseEntity.ok().build()
+//    }
 }

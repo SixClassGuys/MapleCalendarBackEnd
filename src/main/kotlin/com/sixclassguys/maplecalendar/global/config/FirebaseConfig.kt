@@ -5,6 +5,7 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import jakarta.annotation.PostConstruct
 import org.slf4j.LoggerFactory
+import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.core.io.ClassPathResource
 import java.io.IOException
@@ -13,6 +14,8 @@ import java.io.IOException
 class FirebaseConfig {
 
     private val log = LoggerFactory.getLogger(javaClass)
+
+    private lateinit var firebaseApp: FirebaseApp // Bean 등록용
 
     @PostConstruct
     fun init() {
@@ -37,12 +40,19 @@ class FirebaseConfig {
 
             // FirebaseApp이 이미 초기화되어 있지 않은 경우에만 초기화 진행
             if (FirebaseApp.getApps().isEmpty()) {
-                FirebaseApp.initializeApp(options)
+                firebaseApp = FirebaseApp.initializeApp(options)
                 log.info("Firebase Admin SDK 초기화 성공")
+            }else{
+                firebaseApp = FirebaseApp.getInstance()
             }
         } catch (e: IOException) {
             println("Firebase Admin SDK 초기화 실패: ${e.message}")
             e.printStackTrace()
         }
+    }
+
+    @Bean
+    fun firebaseApp(): FirebaseApp {
+        return firebaseApp
     }
 }
