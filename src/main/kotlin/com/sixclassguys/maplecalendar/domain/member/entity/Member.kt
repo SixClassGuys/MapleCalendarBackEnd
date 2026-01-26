@@ -1,5 +1,6 @@
 package com.sixclassguys.maplecalendar.domain.member.entity
 
+import com.sixclassguys.maplecalendar.domain.auth.entity.RefreshToken
 import com.sixclassguys.maplecalendar.domain.character.entity.MapleCharacter
 import com.sixclassguys.maplecalendar.domain.eventalarm.entity.EventAlarm
 import com.sixclassguys.maplecalendar.domain.notification.entity.NotificationToken
@@ -54,5 +55,8 @@ class Member(
     val characters: MutableList<MapleCharacter> = mutableListOf(),
 
     @OneToMany(mappedBy = "member", cascade = [CascadeType.ALL], orphanRemoval = true)
-    val nexonApiKeys: MutableList<NexonApiKey> = mutableListOf()
+    val nexonApiKeys: MutableList<NexonApiKey> = mutableListOf(),
+
+    @OneToMany(mappedBy = "member", cascade = [CascadeType.ALL], orphanRemoval = true)
+    val refreshTokens: MutableList<RefreshToken> = mutableListOf()
 )

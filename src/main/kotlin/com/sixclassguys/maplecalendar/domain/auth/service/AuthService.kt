@@ -4,6 +4,9 @@ import com.google.api.client.googleapis.auth.oauth2.GoogleIdTokenVerifier
 import com.google.api.client.http.javanet.NetHttpTransport
 import com.google.api.client.json.gson.GsonFactory
 import com.sixclassguys.maplecalendar.domain.auth.dto.LoginResponse
+import com.sixclassguys.maplecalendar.domain.auth.entity.RefreshToken
+import com.sixclassguys.maplecalendar.domain.auth.jwt.JwtUtil
+import com.sixclassguys.maplecalendar.domain.auth.repository.RefreshTokenRepository
 import com.sixclassguys.maplecalendar.domain.character.service.MapleCharacterService
 import com.sixclassguys.maplecalendar.domain.member.entity.Member
 import com.sixclassguys.maplecalendar.domain.member.repository.MemberRepository
@@ -22,10 +25,11 @@ import java.time.LocalDateTime
 @Service
 class AuthService(
     private val nexonApiClient: NexonApiClient,
-    private val memberService: MemberService,
     private val memberRepository: MemberRepository,
     private val mapleCharacterService: MapleCharacterService,
     private val notificationService: NotificationService,
+    private val jwtUtil: JwtUtil,
+    private val refreshTokenRepository: RefreshTokenRepository,
     private val googleOAuthProperties: GoogleOAuthProperties
 ) {
 
@@ -138,7 +142,7 @@ class AuthService(
 //    }
 
     @Transactional
-    fun loginWithGoogle(idToken: String, fcmToken: String, platform: Platform): LoginResponse {
+    fun loginWithGoogle(idToken: String, fcmToken: String, platform: Platform): Pair<LoginResponse, String> {
         // Google 공식 검증기 설정
         val verifier = GoogleIdTokenVerifier.Builder(NetHttpTransport(), GsonFactory())
             .setAudience(googleOAuthProperties.clientIds)
@@ -170,41 +174,56 @@ class AuthService(
             log.error("FCM 토큰 업데이트 실패: ${e.message}")
         }
 
+        // JWT 발급
+        val accessToken = jwtUtil.createAccessToken(user.email)
+        val refreshToken = jwtUtil.createRefreshToken(user.email)
+
+        // RefreshToken DB 저장 (1:N)
+        val tokenEntity = RefreshToken(token = refreshToken, member = user)
+        refreshTokenRepository.save(tokenEntity)
+
         // 대표 캐릭터 정보 조회, 대표 캐릭터 OCID가 없으면 기본 프로필 정보만 담은 Response 반환
-        val ocid = user.representativeOcid ?: return LoginResponse.fromEntity(user, null)
+        val ocid = user.representativeOcid ?: return LoginResponse.fromEntity(user, null, accessToken) to refreshToken
 
-        return try {
-            // 5. 넥슨 API를 통해 최신 캐릭터 정보 수집
-            val characterBasic = nexonApiClient.getCharacterBasic(ocid)
+        val loginResponse = if (ocid != null){
+            try {
+                // 5. 넥슨 API를 통해 최신 캐릭터 정보 수집
+                val characterBasic = nexonApiClient.getCharacterBasic(ocid)
 
-            val overAllRanking = nexonApiClient.getOverAllRanking(ocid, getZonedDateTime())
-            val worldName = overAllRanking?.ranking[0]?.worldName
-            val serverRanking = worldName?.let {
-                nexonApiClient.getServerRanking(ocid, getZonedDateTime(), it)
+                val overAllRanking = nexonApiClient.getOverAllRanking(ocid, getZonedDateTime())
+                val worldName = overAllRanking?.ranking[0]?.worldName
+                val serverRanking = worldName?.let {
+                    nexonApiClient.getServerRanking(ocid, getZonedDateTime(), it)
+                }
+                val union = nexonApiClient.getUnionInfo(ocid)
+                val dojang = nexonApiClient.getDojangInfo(ocid)
+
+                // 6. 통합된 LoginResponse 반환
+                LoginResponse(
+                    id = user.id!!,
+                    email = user.email,
+                    provider = user.provider,
+                    isGlobalAlarmEnabled = user.isGlobalAlarmEnabled,
+                    accessToken = accessToken, // 여기서 JWT를 새로 발급
+                    characterBasic = characterBasic,
+                    characterPopularity = overAllRanking?.ranking?.getOrNull(0)?.characterPopularity,
+                    characterOverallRanking = overAllRanking?.ranking[0],
+                    characterServerRanking = serverRanking?.ranking[0],
+                    characterUnionLevel = union,
+                    characterDojang = dojang,
+                    lastLoginAt = user.lastLoginAt
+                )
+            } catch (e: Exception) {
+                // API 키 만료 등의 경우 캐릭터 정보 없이 기본 정보만 반환
+                log.warn("캐릭터 정보 로딩 실패: ${e.message}")
+                LoginResponse.fromEntity(user, null)
             }
-            val union = nexonApiClient.getUnionInfo(ocid)
-            val dojang = nexonApiClient.getDojangInfo(ocid)
-
-            // 6. 통합된 LoginResponse 반환
-            LoginResponse(
-                id = user.id!!,
-                email = user.email,
-                provider = user.provider,
-                isGlobalAlarmEnabled = user.isGlobalAlarmEnabled,
-                accessToken = "JWT_TOKEN_HERE", // 여기서 JWT를 새로 발급
-                characterBasic = characterBasic,
-                characterPopularity = overAllRanking?.ranking?.getOrNull(0)?.characterPopularity,
-                characterOverallRanking = overAllRanking?.ranking[0],
-                characterServerRanking = serverRanking?.ranking[0],
-                characterUnionLevel = union,
-                characterDojang = dojang,
-                lastLoginAt = user.lastLoginAt
-            )
-        } catch (e: Exception) {
-            // API 키 만료 등의 경우 캐릭터 정보 없이 기본 정보만 반환
-            log.warn("캐릭터 정보 로딩 실패: ${e.message}")
-            LoginResponse.fromEntity(user, null)
+        }else {
+            // 대표 캐릭터가 없는 경우 기본 정보만
+            LoginResponse.fromEntity(user, null, accessToken)
         }
+
+        return loginResponse to refreshToken
     }
 
     @Transactional
