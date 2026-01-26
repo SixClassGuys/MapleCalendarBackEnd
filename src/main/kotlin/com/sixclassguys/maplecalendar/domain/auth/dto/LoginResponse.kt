@@ -16,6 +16,7 @@ data class LoginResponse(
     val provider: String,
     val isGlobalAlarmEnabled: Boolean,
     val accessToken: String,
+    val refreshToken: String,
     val isNewMember: Boolean,
     val characterBasic: CharacterBasic? = null,
     val characterPopularity: Int? = null,
@@ -35,7 +36,8 @@ data class LoginResponse(
         fun fromEntity(
             member: Member,
             character: MapleCharacter? = null,
-            token: String? = null,
+            accessToken: String = "",
+            refreshToken: String = "", // 추가
             isNewMember: Boolean = false
         ): LoginResponse {
             return LoginResponse(
@@ -45,7 +47,8 @@ data class LoginResponse(
                 profileImageUrl = member.profileImageUrl,
                 provider = member.provider,
                 isGlobalAlarmEnabled = member.isGlobalAlarmEnabled,
-                accessToken = token ?: "",
+                accessToken = accessToken,
+                refreshToken = refreshToken,
                 isNewMember = isNewMember,
                 lastLoginAt = member.lastLoginAt,
                 // API 호출 실패 시 우리 DB에 있는 정보라도 최대한 넣어줌
