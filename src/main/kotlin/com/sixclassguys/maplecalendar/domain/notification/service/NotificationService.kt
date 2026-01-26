@@ -4,11 +4,10 @@ import com.google.firebase.messaging.AndroidConfig
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.Message
 import com.google.firebase.messaging.Notification
-import com.sixclassguys.maplecalendar.domain.eventalarm.entity.EventAlarm
 import com.sixclassguys.maplecalendar.domain.eventalarm.repository.EventAlarmRepository
 import com.sixclassguys.maplecalendar.domain.member.repository.MemberRepository
 import com.sixclassguys.maplecalendar.domain.member.service.MemberService
-import com.sixclassguys.maplecalendar.domain.notification.dto.TokenRequest
+import com.sixclassguys.maplecalendar.domain.notification.dto.FcmTokenRequest
 import com.sixclassguys.maplecalendar.domain.notification.entity.NotificationToken
 import com.sixclassguys.maplecalendar.domain.notification.repository.NotificationTokenRepository
 import com.sixclassguys.maplecalendar.infrastructure.persistence.event.EventRepository
@@ -19,14 +18,12 @@ import org.springframework.transaction.annotation.Transactional
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
-import java.time.temporal.ChronoUnit
 
 @Service
 @Transactional
 class NotificationService(
     private val notificationTokenRepository: NotificationTokenRepository,
     private val eventRepository: EventRepository,
-    private val memberService: MemberService,
     private val memberRepository: MemberRepository,
     private val eventAlarmRepository: EventAlarmRepository
 ) {
@@ -70,7 +67,7 @@ class NotificationService(
 //        }
 //    }
 
-    fun registerToken(request: TokenRequest, memberId: Long? = null) {
+    fun registerToken(request: FcmTokenRequest, memberId: Long? = null) {
         val existingToken = notificationTokenRepository.findByToken(request.token)
         val member = memberId?.let { memberRepository.findByIdOrNull(it) }
 
