@@ -1,16 +1,12 @@
 package com.sixclassguys.maplecalendar.domain.auth.controller
 
-import com.sixclassguys.maplecalendar.domain.auth.dto.AutoLoginResponse
+import com.sixclassguys.maplecalendar.domain.auth.dto.AuthGoogleRequest
 import com.sixclassguys.maplecalendar.domain.auth.dto.LoginResponse
 import com.sixclassguys.maplecalendar.domain.auth.service.AuthService
 import com.sixclassguys.maplecalendar.domain.member.entity.Member
-import com.sixclassguys.maplecalendar.domain.notification.dto.TokenRequest
-import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
-import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
-import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 
@@ -44,13 +40,13 @@ class AuthController(
 //        }
 //    }
 
-    data class GoogleLoginRequest(val idToken: String)
     data class AppleLoginRequest(val sub: String, val email: String)
 
     @PostMapping("/google")
-    fun googleLogin(@RequestBody request: GoogleLoginRequest): ResponseEntity<Member> {
-        val member = authService.loginWithGoogle(request.idToken)
-        return ResponseEntity.ok(member)
+    fun googleLogin(@RequestBody request: AuthGoogleRequest): ResponseEntity<LoginResponse> {
+        val response = authService.loginWithGoogle(request.idToken, request.fcmToken, request.platform)
+
+        return ResponseEntity.ok(response)
     }
 
     @PostMapping("/apple")

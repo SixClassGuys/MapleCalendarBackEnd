@@ -28,7 +28,7 @@ class NexonApiClient(
 
     private val log = LoggerFactory.getLogger(javaClass)
 
-    fun getCharacterBasic(apiKey: String, ocid: String): CharacterBasic? {
+    fun getCharacterBasic(ocid: String): CharacterBasic? {
         // 1. UriComponentsBuilder를 사용하여 쿼리 파라미터 추가
         val uri = UriComponentsBuilder.fromUriString("${nexonProperties.baseUrl}/character/basic")
             .queryParam("ocid", ocid)
@@ -37,7 +37,7 @@ class NexonApiClient(
 
         // 2. 헤더 설정 (기존과 동일)
         val headers = HttpHeaders().apply {
-            set("x-nxopen-api-key", apiKey)
+            set("x-nxopen-api-key", nexonProperties.key)
         }
         val entity = HttpEntity<Unit>(headers)
 
@@ -58,7 +58,7 @@ class NexonApiClient(
 
         // 헤더에 API Key 설정
         val headers = HttpHeaders().apply {
-            set("x-nxopen-api-key", apiKey)
+            set("x-nxopen-api-key", apiKey) // 반드시 유저의 넥슨 계정으로 발급받은 API Key를 사용
         }
         val entity = HttpEntity<Unit>(headers)
 
@@ -93,7 +93,7 @@ class NexonApiClient(
         return response.body?.eventNotice?.take(20) ?: emptyList()
     }
 
-    fun getOverAllRanking(apiKey: String, ocid: String, date: LocalDate): RankingResponse? {
+    fun getOverAllRanking(ocid: String, date: LocalDate): RankingResponse? {
         val url = "${nexonProperties.baseUrl}/ranking/overall"
         val uri = UriComponentsBuilder
             .fromUriString(url)
@@ -103,7 +103,7 @@ class NexonApiClient(
             .toUri()
 
         val headers = HttpHeaders().apply {
-            set("x-nxopen-api-key", apiKey)
+            set("x-nxopen-api-key", nexonProperties.key)
         }
 
         val response = restTemplate.exchange(
@@ -116,7 +116,7 @@ class NexonApiClient(
         return response.body
     }
 
-    fun getServerRanking(apiKey: String, ocid: String, date: LocalDate, worldName: String): RankingResponse? {
+    fun getServerRanking(ocid: String, date: LocalDate, worldName: String): RankingResponse? {
         val url = "${nexonProperties.baseUrl}/ranking/overall"
         val uri = UriComponentsBuilder
             .fromUriString(url)
@@ -127,7 +127,7 @@ class NexonApiClient(
             .toUri()
         log.info("Nexon API URL12121212 = {}", uri)
         val headers = HttpHeaders().apply {
-            set("x-nxopen-api-key", apiKey)
+            set("x-nxopen-api-key", nexonProperties.key)
         }
 
         val response = restTemplate.exchange(
@@ -141,7 +141,7 @@ class NexonApiClient(
     }
 
 
-    fun getUnionInfo(apiKey: String, ocid: String): UnionResponse? {
+    fun getUnionInfo(ocid: String): UnionResponse? {
         val url = "${nexonProperties.baseUrl}/user/union"
         val uri = UriComponentsBuilder.fromUriString(url)
             .queryParam("ocid", ocid)
@@ -149,7 +149,7 @@ class NexonApiClient(
             .toUri()
 
         val headers = HttpHeaders().apply {
-            set("x-nxopen-api-key", apiKey)
+            set("x-nxopen-api-key", nexonProperties.key)
         }
         val entity = HttpEntity<Unit>(headers)
 
@@ -163,7 +163,7 @@ class NexonApiClient(
         return response.body
     }
 
-    fun getDojangInfo(apiKey: String, ocid: String): DojangRanking? {
+    fun getDojangInfo(ocid: String): DojangRanking? {
         val url = "${nexonProperties.baseUrl}/character/dojang"
         val uri = UriComponentsBuilder.fromUriString(url)
             .queryParam("ocid", ocid)
@@ -171,7 +171,7 @@ class NexonApiClient(
             .toUri()
 
         val headers = HttpHeaders().apply {
-            set("x-nxopen-api-key", apiKey)
+            set("x-nxopen-api-key", nexonProperties.key)
         }
         val entity = HttpEntity<Unit>(headers)
 

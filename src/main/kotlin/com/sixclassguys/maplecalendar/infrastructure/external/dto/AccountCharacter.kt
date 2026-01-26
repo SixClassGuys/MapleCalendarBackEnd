@@ -16,5 +16,5 @@ data class AccountCharacter(
     val characterClass: String,
 
     @JsonProperty("character_level")
-    val characterLevel: Int
+    val characterLevel: Long
 )

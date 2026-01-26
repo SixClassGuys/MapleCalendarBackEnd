@@ -3,22 +3,17 @@ package com.sixclassguys.maplecalendar.domain.auth.service
 import com.google.api.client.googleapis.auth.oauth2.GoogleIdTokenVerifier
 import com.google.api.client.http.javanet.NetHttpTransport
 import com.google.api.client.json.gson.GsonFactory
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.FirebaseToken
-import com.sixclassguys.maplecalendar.domain.auth.dto.AccountCharacterResponse
-import com.sixclassguys.maplecalendar.domain.auth.dto.AutoLoginResponse
 import com.sixclassguys.maplecalendar.domain.auth.dto.LoginResponse
+import com.sixclassguys.maplecalendar.domain.character.service.MapleCharacterService
 import com.sixclassguys.maplecalendar.domain.member.entity.Member
 import com.sixclassguys.maplecalendar.domain.member.repository.MemberRepository
 import com.sixclassguys.maplecalendar.domain.member.service.MemberService
+import com.sixclassguys.maplecalendar.domain.notification.dto.Platform
 import com.sixclassguys.maplecalendar.domain.notification.dto.TokenRequest
 import com.sixclassguys.maplecalendar.domain.notification.service.NotificationService
 import com.sixclassguys.maplecalendar.domain.util.getZonedDateTime
 import com.sixclassguys.maplecalendar.global.config.GoogleOAuthProperties
-import com.sixclassguys.maplecalendar.global.exception.InvalidApiKeyException
 import com.sixclassguys.maplecalendar.infrastructure.external.NexonApiClient
-import kotlinx.coroutines.coroutineScope
-import lombok.Value
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -29,6 +24,7 @@ class AuthService(
     private val nexonApiClient: NexonApiClient,
     private val memberService: MemberService,
     private val memberRepository: MemberRepository,
+    private val mapleCharacterService: MapleCharacterService,
     private val notificationService: NotificationService,
     private val googleOAuthProperties: GoogleOAuthProperties
 ) {
@@ -127,7 +123,7 @@ class AuthService(
 //            AutoLoginResponse(
 //                isSuccess = true,
 //                message = "자동 로그인 성공",
-////                characterBasic = characterBasic?.copy(characterImage = customImage),
+//                characterBasic = characterBasic?.copy(characterImage = customImage),
 //                isGlobalAlarmEnabled = user.isGlobalAlarmEnabled,
 //                characterPopularity = overAllRanking?.ranking[0]?.characterPopularity,
 //                characterOverallRanking = overAllRanking?.ranking[0],
@@ -142,29 +138,73 @@ class AuthService(
 //    }
 
     @Transactional
-    fun loginWithGoogle(idToken: String): Member {
-        // 1️⃣ Firebase ID 토큰 검증
-//        val decodedToken: FirebaseToken = FirebaseAuth.getInstance().verifyIdToken(idToken)
-//        val firebaseUid = decodedToken.uid
-//        val email = decodedToken.email ?: throw IllegalArgumentException("Email not found")
-//
-//        return loginOrRegister(provider = "google", providerId = firebaseUid, email = email)
-
+    fun loginWithGoogle(idToken: String, fcmToken: String, platform: Platform): LoginResponse {
         // Google 공식 검증기 설정
         val verifier = GoogleIdTokenVerifier.Builder(NetHttpTransport(), GsonFactory())
             .setAudience(googleOAuthProperties.clientIds)
             .setIssuer("https://accounts.google.com")
             .build()
 
-        log.info("1231231${idToken}")
+        log.info("Google Id Token: $idToken")
         val googleIdToken = verifier.verify(idToken)
             ?: throw IllegalArgumentException("Invalid Google Token")
 
         val payload = googleIdToken.payload
-        val googleUid = payload.subject // 이게 providerId
+        val googleUid = payload.subject // Google의 subject(providerId)
         val email = payload.email
 
-        return loginOrRegister(provider = "google", providerId = googleUid, email = email)
+        // 유저 조회, 없으면 가입
+        val user = loginOrRegister(provider = "google", providerId = googleUid, email = email)
+
+        // 비동기로 보유한 모든 API Key로 캐릭터 목록을 조회 및 갱신
+        mapleCharacterService.refreshUserCharacters(user)
+
+        // FCM 토큰 업데이트
+        try {
+            notificationService.registerToken(
+                // 플랫폼은 안드로이드로 고정하거나 파라미터로 받기
+                request = TokenRequest(token = fcmToken, platform = platform),
+                memberId = user.id!!
+            )
+        } catch (e: Exception) {
+            log.error("FCM 토큰 업데이트 실패: ${e.message}")
+        }
+
+        // 대표 캐릭터 정보 조회, 대표 캐릭터 OCID가 없으면 기본 프로필 정보만 담은 Response 반환
+        val ocid = user.representativeOcid ?: return LoginResponse.fromEntity(user, null)
+
+        return try {
+            // 5. 넥슨 API를 통해 최신 캐릭터 정보 수집
+            val characterBasic = nexonApiClient.getCharacterBasic(ocid)
+
+            val overAllRanking = nexonApiClient.getOverAllRanking(ocid, getZonedDateTime())
+            val worldName = overAllRanking?.ranking[0]?.worldName
+            val serverRanking = worldName?.let {
+                nexonApiClient.getServerRanking(ocid, getZonedDateTime(), it)
+            }
+            val union = nexonApiClient.getUnionInfo(ocid)
+            val dojang = nexonApiClient.getDojangInfo(ocid)
+
+            // 6. 통합된 LoginResponse 반환
+            LoginResponse(
+                id = user.id!!,
+                email = user.email,
+                provider = user.provider,
+                isGlobalAlarmEnabled = user.isGlobalAlarmEnabled,
+                accessToken = "JWT_TOKEN_HERE", // 여기서 JWT를 새로 발급
+                characterBasic = characterBasic,
+                characterPopularity = overAllRanking?.ranking?.getOrNull(0)?.characterPopularity,
+                characterOverallRanking = overAllRanking?.ranking[0],
+                characterServerRanking = serverRanking?.ranking[0],
+                characterUnionLevel = union,
+                characterDojang = dojang,
+                lastLoginAt = user.lastLoginAt
+            )
+        } catch (e: Exception) {
+            // API 키 만료 등의 경우 캐릭터 정보 없이 기본 정보만 반환
+            log.warn("캐릭터 정보 로딩 실패: ${e.message}")
+            LoginResponse.fromEntity(user, null)
+        }
     }
 
     @Transactional
@@ -188,6 +228,7 @@ class AuthService(
                 email = email,
                 lastLoginAt = LocalDateTime.now()
             )
+            log.info("Member: $member")
             memberRepository.save(member)
         } else {
             // 기존 회원이면 lastLoginAt 업데이트
