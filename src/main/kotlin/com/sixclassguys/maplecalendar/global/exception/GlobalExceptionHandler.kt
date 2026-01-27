@@ -19,6 +19,16 @@ class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(errorResponse)
     }
 
+    @ExceptionHandler(AccessDeniedException::class)
+    fun handleAccessDeniedException(e: AccessDeniedException): ResponseEntity<ErrorResponse> {
+        val errorResponse = ErrorResponse(
+            status = HttpStatus.UNAUTHORIZED.value(),
+            message = e.message
+        )
+
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(errorResponse)
+    }
+
     @ExceptionHandler(MemberNotFoundException::class)
     fun handleMemberNotFound(e: MemberNotFoundException): ResponseEntity<ErrorResponse> {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ErrorResponse(404, e.message))
