@@ -30,6 +30,12 @@ class Member(
     @Column(name = "email", unique = true, nullable = false)
     var email: String,
 
+    @Column(name = "nickname")
+    var nickname: String? = null,
+
+    @Column(name = "profileImageUrl")
+    var profileImageUrl: String? = null,
+
     @Column(name = "is_global_alarm_enabled", nullable = false)
     var isGlobalAlarmEnabled: Boolean = false,
 
@@ -44,6 +50,9 @@ class Member(
 
     @Column(name = "updated_at", nullable = false)
     var updatedAt: LocalDateTime = LocalDateTime.now(),
+
+    @Column(name = "background_image_url", length = 500)
+    var backgroundImageUrl: String? = null,
 
     @OneToMany(mappedBy = "member", cascade = [CascadeType.ALL])
     val tokens: MutableList<NotificationToken> = mutableListOf(),

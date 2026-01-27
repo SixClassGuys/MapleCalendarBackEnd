@@ -1,6 +1,6 @@
 package com.sixclassguys.maplecalendar.domain.notification.dto
 
-data class TokenRequest(
+data class FcmTokenRequest(
     val token: String,
     val platform: Platform
 )

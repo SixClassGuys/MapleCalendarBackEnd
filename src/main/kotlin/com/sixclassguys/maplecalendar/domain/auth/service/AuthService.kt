@@ -3,20 +3,22 @@ package com.sixclassguys.maplecalendar.domain.auth.service
 import com.google.api.client.googleapis.auth.oauth2.GoogleIdTokenVerifier
 import com.google.api.client.http.javanet.NetHttpTransport
 import com.google.api.client.json.gson.GsonFactory
+import com.sixclassguys.maplecalendar.domain.auth.dto.AuthResult
+import com.sixclassguys.maplecalendar.domain.auth.dto.TokenRequest
 import com.sixclassguys.maplecalendar.domain.auth.dto.LoginResponse
-import com.sixclassguys.maplecalendar.domain.auth.entity.RefreshToken
+import com.sixclassguys.maplecalendar.domain.auth.dto.TokenResponse
 import com.sixclassguys.maplecalendar.domain.auth.jwt.JwtUtil
-import com.sixclassguys.maplecalendar.domain.auth.repository.RefreshTokenRepository
 import com.sixclassguys.maplecalendar.domain.character.service.MapleCharacterService
 import com.sixclassguys.maplecalendar.domain.member.entity.Member
 import com.sixclassguys.maplecalendar.domain.member.repository.MemberRepository
 import com.sixclassguys.maplecalendar.domain.member.service.MemberService
 import com.sixclassguys.maplecalendar.domain.notification.dto.Platform
-import com.sixclassguys.maplecalendar.domain.notification.dto.TokenRequest
+import com.sixclassguys.maplecalendar.domain.notification.dto.FcmTokenRequest
 import com.sixclassguys.maplecalendar.domain.notification.service.NotificationService
 import com.sixclassguys.maplecalendar.domain.util.getZonedDateTime
 import com.sixclassguys.maplecalendar.global.config.GoogleOAuthProperties
 import com.sixclassguys.maplecalendar.infrastructure.external.NexonApiClient
+import io.jsonwebtoken.ExpiredJwtException
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -25,11 +27,11 @@ import java.time.LocalDateTime
 @Service
 class AuthService(
     private val nexonApiClient: NexonApiClient,
+    private val memberService: MemberService,
     private val memberRepository: MemberRepository,
     private val mapleCharacterService: MapleCharacterService,
-    private val notificationService: NotificationService,
     private val jwtUtil: JwtUtil,
-    private val refreshTokenRepository: RefreshTokenRepository,
+    private val notificationService: NotificationService,
     private val googleOAuthProperties: GoogleOAuthProperties
 ) {
 
@@ -142,7 +144,37 @@ class AuthService(
 //    }
 
     @Transactional
-    fun loginWithGoogle(idToken: String, fcmToken: String, platform: Platform): Pair<LoginResponse, String> {
+    fun reissue(request: TokenRequest): TokenResponse {
+        try {
+            // 1. 토큰 파싱 및 검증 (만료되었거나 변조되었다면 여기서 Exception 발생)
+            val claims = jwtUtil.parseClaims(request.refreshToken)
+
+            // 2. 토큰 타입이 refresh인지 확인 (JwtUtil에 type 클레임을 넣었으므로 활용 가능)
+            val type = claims["type"] as? String
+            if (type != "refresh") {
+                throw IllegalArgumentException("잘못된 토큰 타입입니다.")
+            }
+
+            val email = claims.subject
+            val member = memberRepository.findByEmail(email)
+                ?: throw NoSuchElementException("존재하지 않는 사용자입니다.")
+
+            // 3. 새로운 토큰 쌍 발급 (Refresh Token Rotation 전략 적용)
+            val newAccessToken = jwtUtil.createAccessToken(member.email)
+            val newRefreshToken = jwtUtil.createRefreshToken(member.email)
+
+            // (선택 사항) 만약 DB나 Redis에 RefreshToken을 저장 중이라면 여기서 업데이트 로직 필요
+
+            return TokenResponse(newAccessToken, newRefreshToken)
+        } catch (e: ExpiredJwtException) {
+            throw IllegalAccessException("리프레시 토큰이 만료되었습니다. 다시 로그인해주세요.")
+        } catch (e: Exception) {
+            throw IllegalAccessException("유효하지 않은 리프레시 토큰입니다.")
+        }
+    }
+
+    @Transactional
+    fun loginWithGoogle(idToken: String, fcmToken: String, platform: Platform): LoginResponse {
         // Google 공식 검증기 설정
         val verifier = GoogleIdTokenVerifier.Builder(NetHttpTransport(), GsonFactory())
             .setAudience(googleOAuthProperties.clientIds)
@@ -156,9 +188,19 @@ class AuthService(
         val payload = googleIdToken.payload
         val googleUid = payload.subject // Google의 subject(providerId)
         val email = payload.email
+        val name = payload["name"] as? String // 유저 전체 이름
+        val pictureUrl = payload["picture"] as? String // 프로필 사진 URL
+        log.info("이메일: ${email}, 닉네임: ${name}, 프사: $pictureUrl")
 
         // 유저 조회, 없으면 가입
-        val user = loginOrRegister(provider = "google", providerId = googleUid, email = email)
+        val authResult = loginOrRegister(
+            provider = "google",
+            providerId = googleUid,
+            email = email,
+            nickname = name,
+            profileImageUrl = pictureUrl
+        )
+        val user = authResult.member
 
         // 비동기로 보유한 모든 API Key로 캐릭터 목록을 조회 및 갱신
         mapleCharacterService.refreshUserCharacters(user)
@@ -167,74 +209,79 @@ class AuthService(
         try {
             notificationService.registerToken(
                 // 플랫폼은 안드로이드로 고정하거나 파라미터로 받기
-                request = TokenRequest(token = fcmToken, platform = platform),
+                request = FcmTokenRequest(token = fcmToken, platform = platform),
                 memberId = user.id!!
             )
         } catch (e: Exception) {
             log.error("FCM 토큰 업데이트 실패: ${e.message}")
         }
 
-        // JWT 발급
         val accessToken = jwtUtil.createAccessToken(user.email)
         val refreshToken = jwtUtil.createRefreshToken(user.email)
 
-        // RefreshToken DB 저장 (1:N)
-        val tokenEntity = RefreshToken(token = refreshToken, member = user)
-        refreshTokenRepository.save(tokenEntity)
-
         // 대표 캐릭터 정보 조회, 대표 캐릭터 OCID가 없으면 기본 프로필 정보만 담은 Response 반환
-        val ocid = user.representativeOcid ?: return LoginResponse.fromEntity(user, null, accessToken) to refreshToken
+        val ocid = user.representativeOcid ?: return LoginResponse.fromEntity(
+            user,
+            null,
+            accessToken,
+            refreshToken,
+            authResult.isNewMember
+        )
 
-        val loginResponse = if (ocid != null){
-            try {
-                // 5. 넥슨 API를 통해 최신 캐릭터 정보 수집
-                val characterBasic = nexonApiClient.getCharacterBasic(ocid)
+        return try {
+            // 5. 넥슨 API를 통해 최신 캐릭터 정보 수집
+            val characterBasic = nexonApiClient.getCharacterBasic(ocid)
 
-                val overAllRanking = nexonApiClient.getOverAllRanking(ocid, getZonedDateTime())
-                val worldName = overAllRanking?.ranking[0]?.worldName
-                val serverRanking = worldName?.let {
-                    nexonApiClient.getServerRanking(ocid, getZonedDateTime(), it)
-                }
-                val union = nexonApiClient.getUnionInfo(ocid)
-                val dojang = nexonApiClient.getDojangInfo(ocid)
-
-                // 6. 통합된 LoginResponse 반환
-                LoginResponse(
-                    id = user.id!!,
-                    email = user.email,
-                    provider = user.provider,
-                    isGlobalAlarmEnabled = user.isGlobalAlarmEnabled,
-                    accessToken = accessToken, // 여기서 JWT를 새로 발급
-                    characterBasic = characterBasic,
-                    characterPopularity = overAllRanking?.ranking?.getOrNull(0)?.characterPopularity,
-                    characterOverallRanking = overAllRanking?.ranking[0],
-                    characterServerRanking = serverRanking?.ranking[0],
-                    characterUnionLevel = union,
-                    characterDojang = dojang,
-                    lastLoginAt = user.lastLoginAt
-                )
-            } catch (e: Exception) {
-                // API 키 만료 등의 경우 캐릭터 정보 없이 기본 정보만 반환
-                log.warn("캐릭터 정보 로딩 실패: ${e.message}")
-                LoginResponse.fromEntity(user, null)
+            val overAllRanking = nexonApiClient.getOverAllRanking(ocid, getZonedDateTime())
+            val worldName = overAllRanking?.ranking[0]?.worldName
+            val serverRanking = worldName?.let {
+                nexonApiClient.getServerRanking(ocid, getZonedDateTime(), it)
             }
-        }else {
-            // 대표 캐릭터가 없는 경우 기본 정보만
-            LoginResponse.fromEntity(user, null, accessToken)
-        }
+            val union = nexonApiClient.getUnionInfo(ocid)
+            val dojang = nexonApiClient.getDojangInfo(ocid)
 
-        return loginResponse to refreshToken
+            // 6. 통합된 LoginResponse 반환
+            LoginResponse(
+                id = user.id!!,
+                email = user.email,
+                provider = user.provider,
+                nickname = name,
+                profileImageUrl = pictureUrl,
+                isGlobalAlarmEnabled = user.isGlobalAlarmEnabled,
+                accessToken = accessToken,
+                refreshToken = refreshToken,
+                isNewMember = authResult.isNewMember,
+                characterBasic = characterBasic,
+                characterPopularity = overAllRanking?.ranking?.getOrNull(0)?.characterPopularity,
+                characterOverallRanking = overAllRanking?.ranking[0],
+                characterServerRanking = serverRanking?.ranking[0],
+                characterUnionLevel = union,
+                characterDojang = dojang,
+                lastLoginAt = user.lastLoginAt
+            )
+        } catch (e: Exception) {
+            // API 키 만료 등의 경우 캐릭터 정보 없이 기본 정보만 반환
+            log.warn("캐릭터 정보 로딩 실패: ${e.message}")
+            LoginResponse.fromEntity(user, null)
+        }
     }
 
     @Transactional
-    fun loginWithApple(appleSub: String, email: String): Member {
+    fun loginWithApple(appleSub: String, email: String): AuthResult {
         // Apple 로그인은 ID 토큰 검증은 필요하지만 여기선 sub와 이메일만 사용
-        return loginOrRegister(provider = "apple", providerId = appleSub, email = email)
+        return loginOrRegister(provider = "apple", providerId = appleSub, email = email, null, null)
     }
 
-    private fun loginOrRegister(provider: String, providerId: String, email: String): Member {
+    private fun loginOrRegister(
+        provider: String,
+        providerId: String,
+        email: String,
+        nickname: String?,
+        profileImageUrl: String?
+    ): AuthResult {
         var member = memberRepository.findByProviderAndProviderId(provider, providerId)
-        if (member == null) {
+
+        return if (member == null) {
             // 이메일 중복 체크
             val existing = memberRepository.findByEmail(email)
             if (existing != null) {
@@ -245,16 +292,21 @@ class AuthService(
                 provider = provider,
                 providerId = providerId,
                 email = email,
+                nickname = nickname,
+                profileImageUrl = profileImageUrl,
                 lastLoginAt = LocalDateTime.now()
             )
             log.info("Member: $member")
             memberRepository.save(member)
+            AuthResult(memberRepository.save(member), true)
         } else {
             // 기존 회원이면 lastLoginAt 업데이트
+            member.nickname = nickname ?: member.nickname
+            member.profileImageUrl = profileImageUrl ?: member.profileImageUrl
             member.lastLoginAt = LocalDateTime.now()
             member.updatedAt = LocalDateTime.now()
             memberRepository.save(member)
+            AuthResult(memberRepository.save(member), false)
         }
-        return member
     }
 }

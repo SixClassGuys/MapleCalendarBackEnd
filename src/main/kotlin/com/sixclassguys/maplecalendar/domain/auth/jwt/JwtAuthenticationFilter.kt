@@ -1,20 +1,18 @@
 package com.sixclassguys.maplecalendar.domain.auth.jwt
 
-import com.sixclassguys.maplecalendar.domain.auth.repository.RefreshTokenRepository
-import com.sixclassguys.maplecalendar.domain.member.repository.MemberRepository
-import io.jsonwebtoken.ExpiredJwtException
 import jakarta.servlet.FilterChain
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
 import org.springframework.security.core.context.SecurityContextHolder
+import org.springframework.security.core.userdetails.User
+import org.springframework.security.core.userdetails.UserDetails
 import org.springframework.stereotype.Component
 import org.springframework.web.filter.OncePerRequestFilter
 
 @Component
 class JwtAuthenticationFilter(
-    private val jwtUtil: JwtUtil,
-    private val refreshTokenRepository: RefreshTokenRepository
+    private val jwtUtil: JwtUtil
 ) : OncePerRequestFilter() {
 
     override fun doFilterInternal(
@@ -22,51 +20,37 @@ class JwtAuthenticationFilter(
         response: HttpServletResponse,
         filterChain: FilterChain
     ) {
-
         val authHeader = request.getHeader("Authorization")
+        println("DEBUG: Auth Header = $authHeader") // 1. 헤더가 오는지 확인
+
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            println("DEBUG: Header Missing or Invalid Format")
             filterChain.doFilter(request, response)
             return
         }
 
         val accessToken = authHeader.substring(7)
-
         try {
-            // AccessToken 정상
             val claims = jwtUtil.parseClaims(accessToken)
+            println("DEBUG: Claims Subject = ${claims.subject}") // 2. 파싱 성공 여부 확인
             setAuthentication(claims.subject)
-        } catch (e: ExpiredJwtException) {
-            // AccessToken 만료 → RefreshToken 확인
-            handleRefreshToken(request, response)
+        } catch (e: Exception) {
+            println("DEBUG: Auth Error = ${e.message}") // 3. 에러 내용 확인
         }
-
         filterChain.doFilter(request, response)
     }
 
-    private fun handleRefreshToken(request: HttpServletRequest, response: HttpServletResponse) {
-        val refreshTokenCookie = request.cookies
-            ?.firstOrNull { it.name == "refreshToken" }
-            ?.value ?: return
-
-        try {
-            // 토큰 유효성 확인
-            val claims = jwtUtil.parseClaims(refreshTokenCookie)
-            if (claims["type"] != "refresh") return
-
-            // DB에서 토큰 조회
-            val savedToken = refreshTokenRepository.findByToken(refreshTokenCookie) ?: return
-            val member = savedToken.member
-
-            // 새로운 AccessToken 발급
-            val newAccessToken = jwtUtil.createAccessToken(member.email)
-            response.setHeader("Authorization", "Bearer $newAccessToken")
-
-            setAuthentication(member.email)
-        } catch (_: Exception) {}
-    }
-
     private fun setAuthentication(username: String) {
-        val auth = UsernamePasswordAuthenticationToken(username, null, emptyList())
+        // 단순 String이 아니라 Spring Security가 제공하는 User 객체(UserDetails의 구현체)를 만듭니다.
+        val userDetails: UserDetails = User.builder()
+            .username(username)
+            .password("") // 비밀번호는 토큰 인증이라 필요 없으므로 빈 값
+            .roles("USER") // 👈 이 한 줄이 있어야 '인증된 사용자'로 인정됩니다.
+            .build()
+
+        val auth = UsernamePasswordAuthenticationToken(userDetails, null, userDetails.authorities)
         SecurityContextHolder.getContext().authentication = auth
+
+        println("DEBUG: SecurityContext에 인증 정보 저장 완료 - ${SecurityContextHolder.getContext().authentication?.name}")
     }
 }

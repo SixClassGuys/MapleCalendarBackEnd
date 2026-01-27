@@ -23,4 +23,8 @@ interface MapleCharacterRepository : JpaRepository<MapleCharacter, Long> {
 
     // 특정 OCID로 캐릭터 조회 (대표 캐릭터 정보 갱신용)
     fun findByOcid(ocid: String): MapleCharacter?
+
+    fun existsByMemberAndOcid(member: Member, ocid: String): Boolean
+
+    fun findByOcidAndMember(ocid: String, member: Member): MapleCharacter?
 }
