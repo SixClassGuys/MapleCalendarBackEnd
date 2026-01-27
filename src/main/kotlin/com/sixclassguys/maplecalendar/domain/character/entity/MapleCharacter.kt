@@ -54,7 +54,7 @@ class MapleCharacter(
     @Column(name = "character_guild_name", length = 20)
     var characterGuildName: String? = null,
 
-    @Column(name = "character_image", length = 500)
+    @Column(name = "character_image", length = 2000)
     var characterImage: String? = null,
 
     @Column(name = "character_date_create", nullable = false)

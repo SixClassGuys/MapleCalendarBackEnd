@@ -26,7 +26,14 @@ enum class MapleWorld(
 
         // 이름으로 Enum을 찾는 메서드 (필터링의 핵심)
         fun fromName(name: String): MapleWorld? {
-            return entries.find { it.worldName == name }
+            // 1. 리슝좍 척결(에오스와 핼리오스로 변경됨)
+            val transformedName = when (name) {
+                "리부트" -> "에오스"
+                "리부트2" -> "핼리오스"
+                else -> name
+            }
+            // 2. 정의된 월드 리스트에 있는지 확인
+            return entries.find { it.worldName == transformedName }
         }
     }
 }
