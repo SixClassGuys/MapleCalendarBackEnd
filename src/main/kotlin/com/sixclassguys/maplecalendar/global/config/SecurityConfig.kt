@@ -38,6 +38,7 @@ class SecurityConfig(
                     "/api/auth/**",
                     "/api/character/**",
                     "/api/boss-parties/**",
+                    "/api/test/s3/**",
                 ).permitAll()
                 it.requestMatchers(
                     "/v2/api-docs",
