@@ -102,8 +102,7 @@ echo -e "${YELLOW}[6/6] 컨테이너 시작 중...${NC}"
 RESOURCES_DIR="$PROJECT_DIR/src/main/resources"
 docker run -d \
     --name "$CONTAINER_NAME" \
-    --link maple-redis:redis \
-    -e REDIS_HOST=redis \
+    -e REDIS_HOST=localhost \
     -e REDIS_PORT=6379 \
     -e REDIS_PASSWORD=$REDIS_PASSWORD \
     -e ENCRYPTION_KEY=$ENCRYPTION_KEY \
