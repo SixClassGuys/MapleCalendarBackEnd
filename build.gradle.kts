@@ -72,6 +72,9 @@ dependencies {
 
     // JSON 직렬화/역직렬화 (일반적으로 spring-boot-starter-web에 포함됨)
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
+
+    // Redis
+    implementation("org.springframework.boot:spring-boot-starter-data-redis")
 }
 
 kotlin {

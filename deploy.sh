@@ -77,11 +77,11 @@ if docker ps -a | grep -q "$CONTAINER_NAME"; then
 fi
 
 # Docker Compose로 PostgreSQL 시작
-echo -e "${YELLOW}[4/6] PostgreSQL 데이터베이스 시작 중...${NC}"
+echo -e "${YELLOW}[4/6] 인프라 컨테이너(Postgres, Redis) 시작 중...${NC}"
 if command -v docker &> /dev/null && docker compose version &> /dev/null; then
-    docker compose up -d postgres
+    docker compose up -d postgres redis
 elif command -v docker-compose &> /dev/null; then
-    docker-compose up -d postgres
+    docker-compose up -d postgres redis
 else
     echo -e "${RED}Docker Compose를 찾을 수 없습니다.${NC}"
     exit 1
@@ -102,6 +102,10 @@ echo -e "${YELLOW}[6/6] 컨테이너 시작 중...${NC}"
 RESOURCES_DIR="$PROJECT_DIR/src/main/resources"
 docker run -d \
     --name "$CONTAINER_NAME" \
+    --link maple-redis:redis \
+    -e REDIS_HOST=redis \
+    -e REDIS_PORT=6379 \
+    -e REDIS_PASSWORD=$REDIS_PASSWORD \
     -e ENCRYPTION_KEY=$ENCRYPTION_KEY \
     -e GOOGLE_OAUTH_CLIENT_IDS_0=$GOOGLE_OAUTH_CLIENT_IDS_0 \
     -e GOOGLE_OAUTH_CLIENT_IDS_1=$GOOGLE_OAUTH_CLIENT_IDS_1 \
