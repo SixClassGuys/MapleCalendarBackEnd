@@ -124,7 +124,7 @@ docker run -d \
     -p 8080:8080 \
     --restart unless-stopped \
     -v "$RESOURCES_DIR:/app/resources:ro" \
-    "$APP_NAME:latest"
+    "$APP_NAME:latest" \
     --spring.rabbitmq.host=host.docker.internal \
     --spring.redis.host=host.docker.internal
 
