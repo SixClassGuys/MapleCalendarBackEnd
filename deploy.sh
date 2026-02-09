@@ -77,11 +77,11 @@ if docker ps -a | grep -q "$CONTAINER_NAME"; then
 fi
 
 # Docker Compose로 PostgreSQL 시작
-echo -e "${YELLOW}[4/6] 인프라 컨테이너(Postgres, Redis) 시작 중...${NC}"
+echo -e "${YELLOW}[4/6] 인프라 컨테이너(Postgres, Redis, RabbitMQ) 시작 중...${NC}"
 if command -v docker &> /dev/null && docker compose version &> /dev/null; then
-    docker compose up -d postgres redis
+    docker compose up -d postgres redis rabbitmq
 elif command -v docker-compose &> /dev/null; then
-    docker-compose up -d postgres redis
+    docker-compose up -d postgres redis rabbitmq
 else
     echo -e "${RED}Docker Compose를 찾을 수 없습니다.${NC}"
     exit 1
