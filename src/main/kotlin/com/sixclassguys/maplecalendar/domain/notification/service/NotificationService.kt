@@ -163,6 +163,31 @@ class NotificationService(
         }
     }
 
+    @Transactional(readOnly = true)
+    fun sendRefreshSignal(partyId: Long) {
+        // 1. 해당 파티의 모든 승인된 멤버 조회
+        val members = bossPartyMemberRepository.findAllWithMemberAndTokensByPartyId(partyId, JoinStatus.ACCEPTED)
+
+        members.forEach { partyMember ->
+            val member = partyMember.character.member
+            member.tokens.forEach { tokenEntity ->
+                val message = Message.builder()
+                    .setToken(tokenEntity.token)
+                    // Notification(알림창) 없이 Data만 포함하여 Silent Push로 전송
+                    .putData("type", "REFRESH_BOSS_ALARM")
+                    .putData("partyId", partyId.toString())
+                    .build()
+
+                try {
+                    FirebaseMessaging.getInstance().send(message)
+                    log.info("📡 갱신 신호 발송 완료: 유저=${member.id}")
+                } catch (e: Exception) {
+                    log.error("❌ 갱신 신호 발송 실패: 유저=${member.id}, 사유=${e.message}")
+                }
+            }
+        }
+    }
+
     private fun markAsSent(alarm: RedisAlarmDto) {
         when (alarm.type) {
             AlarmType.EVENT -> eventAlarmTimeRepository.findByIdOrNull(alarm.targetId)?.apply { isSent = true }
