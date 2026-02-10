@@ -1,7 +1,9 @@
 package com.sixclassguys.maplecalendar.global.util
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.sixclassguys.maplecalendar.global.config.RabbitConfig
 import com.sixclassguys.maplecalendar.global.dto.RedisAlarmDto
+import org.slf4j.LoggerFactory
 import org.springframework.amqp.rabbit.core.RabbitTemplate
 import org.springframework.stereotype.Service
 import java.time.Duration
@@ -10,17 +12,24 @@ import java.time.LocalDateTime
 @Service
 class AlarmProducer(
     private val rabbitTemplate: RabbitTemplate,
-    private val objectMapper: ObjectMapper // 스프링 기본 제공 빈 사용
+    private val objectMapper: ObjectMapper
 ) {
+
+    private val log = LoggerFactory.getLogger(javaClass)
 
     fun reserveAlarm(alarmDto: RedisAlarmDto, sendAt: LocalDateTime) {
         val delay = Duration.between(LocalDateTime.now(), sendAt).toMillis()
-        if (delay < 0) return
+        log.info("🚀 알람 예약 시도: targetId=${alarmDto.targetId}, 지연시간=${delay}ms")
+        if (delay < 0) return // 이미 지난 시간은 발송 제외
 
-        // 💡 핵심: 객체를 직접 던지지 않고 JSON 문자열로 변환
+        // 객체를 JSON 문자열로 직접 변환 (Converter 의존성 제거)
         val jsonMessage = objectMapper.writeValueAsString(alarmDto)
 
-        rabbitTemplate.convertAndSend("alarm.exchange", "alarm.routing.key", jsonMessage) { message ->
+        rabbitTemplate.convertAndSend(
+            RabbitConfig.DELAYED_EXCHANGE,
+            RabbitConfig.BOSS_ROUTING_KEY,
+            jsonMessage
+        ) { message ->
             message.messageProperties.setHeader("x-delay", delay)
             message
         }

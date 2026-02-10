@@ -3,6 +3,7 @@ package com.sixclassguys.maplecalendar.domain.boss.entity
 import com.sixclassguys.maplecalendar.domain.boss.enums.BossDifficulty
 import com.sixclassguys.maplecalendar.domain.boss.enums.BossType
 import jakarta.persistence.*
+import java.time.DayOfWeek
 import java.time.LocalDateTime
 
 @Entity
@@ -24,6 +25,18 @@ class BossParty(
     @Enumerated(EnumType.STRING)
     @Column(name = "difficulty", nullable = false)
     var difficulty: BossDifficulty,
+
+    @Column(name = "alarm_day_of_week")
+    var alarmDayOfWeek: DayOfWeek? = null,
+
+    @Column(name = "alarm_hour")
+    var alarmHour: Int? = null,
+
+    @Column(name = "alarm_minute")
+    var alarmMinute: Int? = null,
+
+    @Column(name = "alarm_message")
+    var alarmMessage: String? = null,
 
     @OneToMany(mappedBy = "bossParty", fetch = FetchType.LAZY)
     val members: List<BossPartyMember> = emptyList(),
