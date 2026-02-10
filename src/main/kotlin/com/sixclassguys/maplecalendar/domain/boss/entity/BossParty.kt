@@ -35,7 +35,7 @@ class BossParty(
     @Column(name = "alarm_minute")
     var alarmMinute: Int? = null,
 
-    @Column(name = "alarm_message")
+    @Column(name = "alarm_message", length = 100)
     var alarmMessage: String? = null,
 
     @OneToMany(mappedBy = "bossParty", fetch = FetchType.LAZY)

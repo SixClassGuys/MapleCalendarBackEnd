@@ -26,6 +26,7 @@ import com.sixclassguys.maplecalendar.domain.character.repository.MapleCharacter
 import com.sixclassguys.maplecalendar.domain.member.repository.MemberRepository
 import com.sixclassguys.maplecalendar.domain.boss.enums.BossPartyChatMessageType
 import com.sixclassguys.maplecalendar.domain.boss.enums.RegistrationMode
+import com.sixclassguys.maplecalendar.domain.notification.service.NotificationService
 import com.sixclassguys.maplecalendar.global.dto.AlarmType
 import com.sixclassguys.maplecalendar.global.dto.RedisAlarmDto
 import com.sixclassguys.maplecalendar.global.exception.AccessDeniedException
@@ -57,6 +58,7 @@ class BossPartyService(
     private val bossPartyAlarmTimeRepository: BossPartyAlarmTimeRepository,
     private val bossPartyChatMessageRepository: BossPartyChatMessageRepository,
     private val bossPartyBoardRepository: BossPartyBoardRepository,
+    private val notificationService: NotificationService,
     private val alarmProducer: AlarmProducer
 ) {
 
@@ -248,6 +250,8 @@ class BossPartyService(
             message = message
         )
         alarmProducer.reserveAlarm(dto, alarmDateTime)
+
+        notificationService.sendRefreshSignal(partyId)
     }
 
     private fun calculateNextAlarmTime(dayOfWeek: DayOfWeek, hour: Int, minute: Int): LocalDateTime {
@@ -342,6 +346,8 @@ class BossPartyService(
                 }
             }
         }
+
+        notificationService.sendRefreshSignal(partyId)
     }
 
     @Transactional
@@ -366,7 +372,7 @@ class BossPartyService(
         // isSent를 true로 만들면 리스트 조회(findBy...AndIsSentFalse)에서도 자동으로 제외됩니다.
         alarm.isSent = true
 
-        println("🗑️ 알람 논리 삭제 완료: ID $alarmId (isSent set to true)")
+        notificationService.sendRefreshSignal(partyId)
     }
 
     @Transactional
