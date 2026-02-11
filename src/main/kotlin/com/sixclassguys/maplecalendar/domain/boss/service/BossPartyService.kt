@@ -117,8 +117,9 @@ class BossPartyService(
 
         return results.map { result ->
             val p = result[0] as BossParty
-            val isPartyAlarm = result[1] as Boolean
-            val isChatAlarm = result[2] as Boolean
+            val bm = result[1] as BossPartyMember
+            val isPartyAlarm = result[2] as Boolean
+            val isChatAlarm = result[3] as Boolean
 
             // 방장 찾기
             val leader = p.members.find { it.role == PartyRole.LEADER }?.character?.characterName ?: "Unknown"
@@ -135,6 +136,7 @@ class BossPartyService(
                 isChatAlarmEnabled = isChatAlarm,
                 leaderNickname = leader,
                 memberCount = totalCount,
+                joinStatus = bm.joinStatus ?: JoinStatus.INVITED,
                 createdAt = p.createdAt,
                 updatedAt = p.updatedAt
             )

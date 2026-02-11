@@ -19,12 +19,13 @@ interface BossPartyRepository : JpaRepository<BossParty, Long>{
     fun findAllByMemberId(memberId: Long): List<BossParty>
 
     @Query("""
-    SELECT p, m.isPartyAlarmEnabled, m.isChatAlarmEnabled
+    SELECT p, bm, m.isPartyAlarmEnabled, m.isChatAlarmEnabled
     FROM BossParty p
     JOIN FETCH p.members pm
-    JOIN FETCH pm.character
+    JOIN FETCH pm.character ㅊ
     JOIN MemberBossPartyMapping m ON p.id = m.bossPartyId
-    WHERE m.memberId = :memberId
+    JOIN BossPartyMember bm ON p.id = bm.bossParty.id
+    WHERE m.memberId = :memberId AND bm.character.member.id = :memberId
 """)
     fun findAllPartiesByMemberId(@Param("memberId") memberId: Long): List<Array<Any>>
 
