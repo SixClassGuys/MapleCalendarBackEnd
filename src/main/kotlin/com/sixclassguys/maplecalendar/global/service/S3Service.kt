@@ -43,7 +43,6 @@ class S3Service(
         try {
             amazonS3.putObject(
                 PutObjectRequest(bucket, fileName, multipartFile.inputStream, objectMetadata)
-                    .withCannedAcl(com.amazonaws.services.s3.model.CannedAccessControlList.PublicRead)
             )
         } catch (e: AmazonServiceException) {
             throw RuntimeException("S3 업로드 실패: ${e.message}", e)
@@ -56,23 +55,26 @@ class S3Service(
     private fun validateFile(file: MultipartFile) {
         require(!file.isEmpty) { "파일이 비어있습니다." }
         require(file.size <= MAX_FILE_SIZE) { "파일 크기가 ${MAX_FILE_SIZE / (1024 * 1024)}MB를 초과합니다." }
-        
+
         val extension = file.originalFilename?.substringAfterLast(".")?.lowercase() ?: ""
         require(extension in ALLOWED_EXTENSIONS) { "허용되지 않는 파일 형식: $extension" }
-        
+
         val mimeType = file.contentType ?: ""
         require(mimeType in ALLOWED_MIME_TYPES) { "허용되지 않는 MIME 타입: $mimeType" }
     }
 
     private fun generateFileName(dirName: String, originalFilename: String): String {
-        val sanitizedDir = dirName.replace("[^a-zA-Z0-9-_]".toRegex(), "")
+        val sanitizedDir = dirName
+            .trim('/')
+            .replace(Regex("[^a-zA-Z0-9/_-]"), "")
+            .replace(Regex("/+"), "/")
         val sanitizedName = originalFilename
             .substringBeforeLast(".")
             .replace("[^a-zA-Z0-9-_]".toRegex(), "")
         val extension = originalFilename.substringAfterLast(".")
         val timestamp = System.currentTimeMillis()
         val uuid = UUID.randomUUID().toString().take(8)
-        
+
         return "$sanitizedDir/$timestamp-$uuid-$sanitizedName.$extension"
     }
 }

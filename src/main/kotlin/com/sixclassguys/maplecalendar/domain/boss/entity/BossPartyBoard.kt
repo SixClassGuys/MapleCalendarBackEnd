@@ -1,6 +1,6 @@
 package com.sixclassguys.maplecalendar.domain.boss.entity
 
-import com.sixclassguys.maplecalendar.domain.member.entity.Member
+import com.sixclassguys.maplecalendar.domain.character.entity.MapleCharacter
 import jakarta.persistence.*
 import java.time.LocalDateTime
 
@@ -17,10 +17,9 @@ class BossPartyBoard(
     @JoinColumn(name = "boss_party_id", nullable = false)
     val bossParty: BossParty,
 
-    // Member 객체와 연관관계
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "member_id", nullable = false)
-    val member: Member,
+    @JoinColumn(name = "character_id", nullable = false)
+    val character: MapleCharacter,
 
     @Column(nullable = false, length = 1000)
     val content: String,
@@ -33,14 +32,16 @@ class BossPartyBoard(
     @OneToMany(
         mappedBy = "bossPartyBoard",
         cascade = [CascadeType.ALL],
-        orphanRemoval = true
+        orphanRemoval = true,
+        fetch = FetchType.LAZY
     )
     val images: MutableList<BossPartyBoardImage> = mutableListOf()
 
     @OneToMany(
         mappedBy = "bossPartyBoard",
         cascade = [CascadeType.ALL],
-        orphanRemoval = true
+        orphanRemoval = true,
+        fetch = FetchType.LAZY
     )
     val likes: MutableList<BossPartyBoardLike> = mutableListOf()
 }
