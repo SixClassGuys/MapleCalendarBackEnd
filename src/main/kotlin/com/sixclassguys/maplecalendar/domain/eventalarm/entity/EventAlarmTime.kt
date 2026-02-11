@@ -15,7 +15,7 @@ import java.time.LocalDateTime
 @Table(name = "event_alarm_times")
 class EventAlarmTime(
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
-    val id: Long? = null,
+    val id: Long = 0L,
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "event_alarm_id")

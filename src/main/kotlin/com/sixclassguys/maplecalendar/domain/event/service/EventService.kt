@@ -3,7 +3,7 @@ package com.sixclassguys.maplecalendar.domain.event.service
 import com.sixclassguys.maplecalendar.domain.event.dto.EventResponse
 import com.sixclassguys.maplecalendar.domain.event.entity.Event
 import com.sixclassguys.maplecalendar.domain.eventalarm.repository.EventAlarmRepository
-import com.sixclassguys.maplecalendar.domain.member.service.MemberService
+import com.sixclassguys.maplecalendar.domain.member.repository.MemberRepository
 import com.sixclassguys.maplecalendar.infrastructure.external.NexonApiClient
 import com.sixclassguys.maplecalendar.infrastructure.external.dto.EventNotice
 import com.sixclassguys.maplecalendar.infrastructure.persistence.event.EventRepository
@@ -14,29 +14,21 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.OffsetDateTime
-import java.time.format.DateTimeFormatter
 
 @Service
 class EventService(
     private val nexonApiClient: NexonApiClient,
     private val eventRepository: EventRepository,
-    private val memberService: MemberService,
+    private val memberRepository: MemberRepository,
     private val eventAlarmRepository: EventAlarmRepository
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
-    private val formatter = DateTimeFormatter.ISO_LOCAL_DATE_TIME
 
-    private fun mapToResponses(events: List<Event>, apiKey: String?): List<EventResponse> {
+    private fun mapToResponses(events: List<Event>, userEmail: String): List<EventResponse> {
         if (events.isEmpty()) return emptyList()
 
-        // 1. API Key가 없거나 멤버가 없으면 알람 정보 없이 바로 반환
-//        val member = apiKey?.let { memberService.findByRawKey(it) }
-        // 여기 나중에 다시 수정해야함
-        val member = apiKey?.let { memberService.findByProviderAndProviderId(it,it) }
-        if (member == null) {
-            return events.map { it.toDefaultResponse() }
-        }
+        val member = memberRepository.findByEmail(userEmail) ?: return events.map { it.toDefaultResponse() }
 
         val isGlobalEnabled = member.isGlobalAlarmEnabled
 
@@ -83,20 +75,20 @@ class EventService(
         alarmTimes = emptyList()
     )
 
-    fun getEventDetail(apiKey: String, eventId: Long): EventResponse? {
+    fun getEventDetail(userEmail: String, eventId: Long): EventResponse? {
         val event = eventRepository.findById(eventId).orElse(null)
 
-        return event?.let { mapToResponses(listOf(it), apiKey).firstOrNull() }
+        return event?.let { mapToResponses(listOf(it), userEmail).firstOrNull() }
     }
 
-    fun getTodayEvents(year: Int, month: Int, day: Int, apiKey: String?): List<EventResponse> {
+    fun getTodayEvents(year: Int, month: Int, day: Int, userEmail: String): List<EventResponse> {
         val today = LocalDateTime.of(year, month, day, 0, 0)
         val events = eventRepository.getEventsForToday(today)
 
-        return mapToResponses(events, apiKey)
+        return mapToResponses(events, userEmail)
     }
 
-    fun getEventsByMonth(year: Int, month: Int, apiKey: String?): List<EventResponse> {
+    fun getEventsByMonth(year: Int, month: Int, userEmail: String): List<EventResponse> {
         val startOfMonth = LocalDateTime.of(year, month, 1, 0, 0)
         val endOfMonth = startOfMonth.plusMonths(1).minusNanos(1)
 
@@ -104,7 +96,7 @@ class EventService(
             endOfMonth, startOfMonth
         )
 
-        return mapToResponses(events, apiKey)
+        return mapToResponses(events, userEmail)
     }
 
     @Transactional
