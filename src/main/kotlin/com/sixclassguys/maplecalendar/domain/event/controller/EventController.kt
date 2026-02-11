@@ -3,9 +3,10 @@ package com.sixclassguys.maplecalendar.domain.event.controller
 import com.sixclassguys.maplecalendar.domain.event.dto.EventResponse
 import com.sixclassguys.maplecalendar.domain.event.service.EventService
 import org.springframework.http.ResponseEntity
+import org.springframework.security.core.annotation.AuthenticationPrincipal
+import org.springframework.security.core.userdetails.UserDetails
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
-import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
@@ -18,10 +19,10 @@ class EventController(
 
     @GetMapping("/{eventId}")
     fun getEvent(
-        @RequestHeader("x-nxopen-api-key") apiKey: String,
+        @AuthenticationPrincipal userDetails: UserDetails,
         @PathVariable eventId: Long
     ): ResponseEntity<EventResponse> {
-        val event = eventService.getEventDetail(apiKey, eventId)
+        val event = eventService.getEventDetail(userDetails.username, eventId)
             ?: return ResponseEntity.notFound().build()
 
         return ResponseEntity.ok(event)
@@ -29,23 +30,23 @@ class EventController(
 
     @GetMapping
     fun getEvents(
-        @RequestHeader("x-nxopen-api-key") apiKey: String,
+        @AuthenticationPrincipal userDetails: UserDetails,
         @RequestParam year: Int,
         @RequestParam month: Int
     ): ResponseEntity<List<EventResponse>> {
-        val events = eventService.getEventsByMonth(year, month, apiKey)
+        val events = eventService.getEventsByMonth(year, month, userDetails.username)
 
         return ResponseEntity.ok(events)
     }
 
     @GetMapping("/today")
     fun getTodayEvents(
-        @RequestHeader("x-nxopen-api-key") apiKey: String,
+        @AuthenticationPrincipal userDetails: UserDetails,
         @RequestParam year: Int,
         @RequestParam month: Int,
         @RequestParam day: Int
     ): ResponseEntity<List<EventResponse>> {
-        val events = eventService.getTodayEvents(year, month, day, apiKey)
+        val events = eventService.getTodayEvents(year, month, day, userDetails.username)
 
         return ResponseEntity.ok(events)
     }
