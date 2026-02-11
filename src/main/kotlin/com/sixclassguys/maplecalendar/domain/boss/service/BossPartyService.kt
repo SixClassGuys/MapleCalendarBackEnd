@@ -213,6 +213,7 @@ class BossPartyService(
         val endTime = LocalDateTime.of(year, month, day, 23, 59)
 
         val alarms = bossPartyAlarmTimeRepository.findMemberSchedules(member.id, startTime, endTime)
+        if (alarms.isEmpty()) return emptyList()
 
         // 같은 파티인데 알람이 여러 번 등록된 경우 중복 제거 (partyId 기준)
         val uniquePartyIds = alarms.map { it.bossPartyId }.distinct()
@@ -230,7 +231,8 @@ class BossPartyService(
 
         val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
-        return parties.map { party ->
+        return alarms.sortedBy { it.alarmTime }.distinctBy { it.bossPartyId }.mapNotNull { alarm ->
+            val party = parties.find { it.id == alarm.bossPartyId } ?: return@mapNotNull null
             val membersInThisParty = membersByPartyId[party.id]?.map { member ->
                 BossPartyMemberDetail(
                     characterId = member.character.id,
@@ -250,7 +252,7 @@ class BossPartyService(
                 boss = party.boss,
                 bossDifficulty = party.difficulty,
                 members = membersInThisParty, // 그룹화된 맵에서 꺼내기
-                time = alarms.filter{ !it.isSent }.first { it.bossPartyId == party.id }.alarmTime.format(timeFormatter)
+                time = alarm.alarmTime.format(timeFormatter)
             )
         }
     }
