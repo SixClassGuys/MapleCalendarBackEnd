@@ -200,15 +200,31 @@ class BossPartyService(
     }
 
     @Transactional
-    fun togglePartyAlarm(email: String, bossPartyId: Long, enabled: Boolean) {
+    fun togglePartyAlarm(email: String, bossPartyId: Long): Boolean {
         val member = memberRepository.findByEmail(email)
             ?: throw IllegalArgumentException("존재하지 않는 사용자입니다.")
 
         val mapping = memberBossPartyMappingRepository.findByMemberIdAndBossPartyId(member.id, bossPartyId)
             ?: throw IllegalArgumentException("해당 파티의 멤버가 아닙니다.")
 
-        mapping.isPartyAlarmEnabled = enabled
+        mapping.isPartyAlarmEnabled = !mapping.isPartyAlarmEnabled
         // Dirty Checking
+
+        return mapping.isPartyAlarmEnabled
+    }
+
+    @Transactional
+    fun togglePartyChatAlarm(email: String, bossPartyId: Long): Boolean {
+        val member = memberRepository.findByEmail(email)
+            ?: throw IllegalArgumentException("존재하지 않는 사용자입니다.")
+
+        val mapping = memberBossPartyMappingRepository.findByMemberIdAndBossPartyId(member.id, bossPartyId)
+            ?: throw IllegalArgumentException("해당 파티의 멤버가 아닙니다.")
+
+        mapping.isChatAlarmEnabled = !mapping.isChatAlarmEnabled
+        // Dirty Checking
+
+        return mapping.isChatAlarmEnabled
     }
 
     @Transactional
@@ -245,7 +261,7 @@ class BossPartyService(
             type = AlarmType.BOSS,
             targetId = savedTime.id,
             memberId = 0L, // 개별 전송이 아니므로 0 또는 공백 처리
-            partyId = partyId, // DTO에 partyId 필드 추가 필요
+            contentId = partyId, // DTO에 partyId 필드 추가 필요
             title = party.title,
             message = message
         )
@@ -338,7 +354,7 @@ class BossPartyService(
                         type = AlarmType.BOSS,
                         targetId = savedTime.id,
                         memberId = 0L,
-                        partyId = partyId,
+                        contentId = partyId,
                         title = party.title,
                         message = request.message
                     )

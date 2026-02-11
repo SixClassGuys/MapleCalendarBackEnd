@@ -85,12 +85,11 @@ class BossPartyController(
     @PatchMapping("/{bossPartyId}/alarm-times/toggle")
     fun updateAlarmSetting(
         @AuthenticationPrincipal userDetails: UserDetails,
-        @PathVariable bossPartyId: Long,
-        @RequestParam enabled: Boolean // 쿼리 스트링 (?enabled=true)
-    ): ResponseEntity<Unit> {
-        bossPartyService.togglePartyAlarm(userDetails.username, bossPartyId, enabled)
+        @PathVariable bossPartyId: Long
+    ): ResponseEntity<Boolean> {
+        val response = bossPartyService.togglePartyAlarm(userDetails.username, bossPartyId)
 
-        return ResponseEntity.ok().build()
+        return ResponseEntity.ok(response)
     }
 
     @PostMapping("/{bossPartyId}/alarm-times")
@@ -151,6 +150,16 @@ class BossPartyController(
         @PathVariable bossPartyId: Long
     ): List<BossPartyMemberResponse> {
         return bossPartyService.getAcceptedMembersByBossPartyId(bossPartyId)
+    }
+
+    @PatchMapping("/{bossPartyId}/chat-messages/toggle")
+    fun updateChatAlarmSetting(
+        @AuthenticationPrincipal userDetails: UserDetails,
+        @PathVariable bossPartyId: Long
+    ): ResponseEntity<Boolean> {
+        val response = bossPartyService.togglePartyChatAlarm(userDetails.username, bossPartyId)
+
+        return ResponseEntity.ok(response)
     }
 
     @Operation(

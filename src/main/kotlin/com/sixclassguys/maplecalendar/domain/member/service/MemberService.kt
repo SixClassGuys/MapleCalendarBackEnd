@@ -7,7 +7,7 @@ import com.sixclassguys.maplecalendar.domain.member.repository.MemberRepository
 import com.sixclassguys.maplecalendar.domain.notification.dto.Platform
 import com.sixclassguys.maplecalendar.domain.notification.dto.FcmTokenRequest
 import com.sixclassguys.maplecalendar.domain.notification.service.NotificationService
-import com.sixclassguys.maplecalendar.global.config.EncryptionUtil
+import com.sixclassguys.maplecalendar.global.exception.MemberNotFoundException
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -16,23 +16,22 @@ import org.springframework.transaction.annotation.Transactional
 class MemberService(
     private val notificationService: NotificationService,
     private val memberRepository: MemberRepository,
-    private val mapleCharacterRepository: MapleCharacterRepository,
-    private val encryptionUtil: EncryptionUtil
+    private val mapleCharacterRepository: MapleCharacterRepository
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
 
     @Transactional
-    fun getMyInfo(email: String, fcmToken: String, platform: Platform): LoginResponse {
+    fun getMyInfo(userEmail: String, fcmToken: String, platform: Platform): LoginResponse {
         // 1. 유저 조회
-        val member = memberRepository.findByEmail(email)
-            ?: throw NoSuchElementException("해당 유저를 찾을 수 없습니다.")
+        val member = memberRepository.findByEmail(userEmail)
+            ?: throw MemberNotFoundException()
 
         // 2. FCM 토큰 업데이트 (로그인 로직과 동일하게 유지)
         try {
             notificationService.registerToken(
                 request = FcmTokenRequest(token = fcmToken, platform = platform),
-                memberId = member.id!!
+                memberId = member.id
             )
         } catch (e: Exception) {
             // 알림 토큰 업데이트 실패가 로그인 흐름 전체를 방해하지 않도록 예외 처리만 수행
@@ -58,34 +57,25 @@ class MemberService(
         )
     }
 
+    @Transactional
+    fun updateGlobalAlarmStatus(userEmail: String): Boolean {
+        // 1. 유저 조회
+        val member = memberRepository.findByEmail(userEmail)
+            ?: throw MemberNotFoundException()
+
+        member.isGlobalAlarmEnabled = !member.isGlobalAlarmEnabled
+        // Dirty Checking으로 자동 저장
+
+        return member.isGlobalAlarmEnabled
+    }
+
     // Auth 용도로 쓰일 기본 조회 함수
     fun findByEmail(email: String): Member? = memberRepository.findByEmail(email)
-
-//    // 유저가 반드시 있어야 하는 경우 (업데이트, 정보 조회 등)
-//    fun getMemberByRawKey(rawApiKey: String): Member {
-//        return findByRawKey(rawApiKey)
-//            ?: throw MemberNotFoundException("해당 유저를 찾을 수 없습니다.")
-//    }
-//
-//    // 유저 존재 여부만 확인하는 경우 (로그인/가입 시)
-//    fun findByRawKey(rawApiKey: String): Member? {
-//        val hashedKey = encryptionUtil.hashKey(rawApiKey)
-//        return memberRepository.findByApiKeyHash(hashedKey)
-//    }
 
     // 유저 존재 여부만 확인하는 경우 (로그인/가입 시)
     fun findByProviderAndProviderId(provider: String, providerId: String): Member? {
         return memberRepository.findByProviderAndProviderId (provider,providerId)
     }
-
-//    @Transactional
-//    fun saveNewMember(apiKey: String): Member {
-//        val hashedKey = encryptionUtil.hashKey(apiKey)
-//        return memberRepository.save(Member(
-//            nexonApiKey = apiKey,
-//            apiKeyHash = hashedKey
-//        ))
-//    }
 
 //    @Transactional
 //    fun updateRepresentativeCharacter(apiKey: String, ocid: String) {
@@ -97,15 +87,6 @@ class MemberService(
 //        member.representativeOcid = ocid
 //    }
 //
-//    @Transactional
-//    fun updateGlobalAlarmStatus(apiKey: String): Boolean {
-//        val member = getMemberByRawKey(apiKey)
-//
-//        member.isGlobalAlarmEnabled = !member.isGlobalAlarmEnabled
-//        // Dirty Checking으로 자동 저장
-//
-//        return member.isGlobalAlarmEnabled
-//    }
 //
 //    // 추후 Controller에 API 추가
 //    @Transactional
