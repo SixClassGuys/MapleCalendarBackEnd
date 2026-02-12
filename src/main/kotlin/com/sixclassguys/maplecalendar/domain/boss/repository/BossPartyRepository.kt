@@ -2,6 +2,7 @@ package com.sixclassguys.maplecalendar.domain.boss.repository
 
 import com.sixclassguys.maplecalendar.domain.boss.dto.BossPartyResponse
 import com.sixclassguys.maplecalendar.domain.boss.entity.BossParty
+import com.sixclassguys.maplecalendar.domain.boss.enums.JoinStatus
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
@@ -19,15 +20,20 @@ interface BossPartyRepository : JpaRepository<BossParty, Long>{
     fun findAllByMemberId(memberId: Long): List<BossParty>
 
     @Query("""
-    SELECT p, bm, m.isPartyAlarmEnabled, m.isChatAlarmEnabled
+    SELECT p, bm, 
+           COALESCE(m.isPartyAlarmEnabled, true), 
+           COALESCE(m.isChatAlarmEnabled, true)
     FROM BossParty p
-    JOIN FETCH p.members pm
-    JOIN FETCH pm.character c
-    JOIN MemberBossPartyMapping m ON p.id = m.bossPartyId
     JOIN BossPartyMember bm ON p.id = bm.bossParty.id
-    WHERE m.memberId = :memberId AND bm.character.member.id = :memberId AND p.isDeleted = false
+    LEFT JOIN MemberBossPartyMapping m ON p.id = m.bossPartyId AND m.memberId = :memberId
+    WHERE bm.character.member.id = :memberId 
+      AND bm.joinStatus IN :statuses
+      AND p.isDeleted = false
 """)
-    fun findAllPartiesByMemberId(@Param("memberId") memberId: Long): List<Array<Any>>
+    fun findAllPartiesByMemberId(
+        @Param("memberId") memberId: Long,
+        @Param("statuses") statuses: List<JoinStatus>
+    ): List<Array<Any>>
 
     @Query("""
         SELECT p 

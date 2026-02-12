@@ -112,7 +112,8 @@ class BossPartyService(
         val member = memberRepository.findByEmail(userEmail)
             ?: throw MemberNotFoundException()
 
-        val results = bossPartyRepository.findAllPartiesByMemberId(member.id)
+        val targetStatuses = listOf(JoinStatus.ACCEPTED, JoinStatus.INVITED)
+        val results = bossPartyRepository.findAllPartiesByMemberId(member.id, targetStatuses)
 
         return results.map { result ->
             val p = result[0] as BossParty
