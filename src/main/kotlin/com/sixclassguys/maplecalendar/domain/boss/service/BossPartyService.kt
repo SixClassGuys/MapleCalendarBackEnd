@@ -47,7 +47,6 @@ import org.springframework.transaction.annotation.Transactional
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalDateTime
-import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
 
@@ -604,46 +603,78 @@ class BossPartyService(
                 joinStatus = JoinStatus.INVITED
             )
         )
+
+        notificationService.sendBossPartyInvitationAlarm(
+            partyId = bossParty.id,
+            inviteeCharacterId = character.id,
+            partyTitle = bossParty.title,
+            boss = bossParty.boss,
+            bossDifficulty = bossParty.difficulty
+        )
     }
 
     // 초대 수락
     @Transactional
-    fun acceptInvitation(partyId: Long, characterId: Long, userEmail: String) {
+    fun acceptInvitation(partyId: Long, userEmail: String): Long {
         val bossParty = bossPartyRepository.findByIdAndIsDeletedFalse(partyId)
             ?: throw IllegalStateException("존재하지 않거나 삭제된 파티입니다.")
 
+        // 해당 유저(userEmail)가 이 파티(partyId)에 초대받은(INVITED) 이력이 있는지 조회
+        // 만약 한 유저의 여러 캐릭터가 초대될 수 없는 구조라면 단건 조회가 적절합니다.
         val invitee = bossPartyMemberRepository.findByBossPartyIdAndCharacterMemberEmail(partyId, userEmail)
-            ?: throw AccessDeniedException("파티 멤버가 아닙니다.")
+            ?: throw AccessDeniedException("이 파티에 초대받은 기록이 없습니다.")
 
-        if(invitee.character.id != characterId){
-            throw AccessDeniedException("본인만 수락할 수 있습니다.")
+        // 상태 검증: 이미 수락했거나 다른 상태인지 확인
+        if (invitee.joinStatus != JoinStatus.INVITED) {
+            throw IllegalStateException("수락할 수 있는 상태가 아닙니다. (현재 상태: ${invitee.joinStatus})")
         }
 
-        when (invitee.joinStatus) {
-            JoinStatus.INVITED -> invitee.joinStatus = JoinStatus.ACCEPTED
-            JoinStatus.ACCEPTED -> throw IllegalStateException("이미 수락된 상태입니다")
-            else -> throw IllegalStateException("알 수 없는 상태입니다")
-        }
+        // 상태 변경 (수락)
+        invitee.joinStatus = JoinStatus.ACCEPTED
+
+        // 알림 발송
+        notificationService.sendBossPartyAcceptanceAlarm(
+            partyId = bossParty.id,
+            joinerCharacterName = invitee.character.characterName, // 초대받았던 그 캐릭터의 이름
+            partyTitle = bossParty.title,
+            boss = bossParty.boss,
+            bossDifficulty = bossParty.difficulty
+        )
+
+        return bossParty.id
     }
 
     // 초대 거절
     @Transactional
-    fun declineInvitation(partyId: Long, characterId: Long, userEmail: String) {
+    fun declineInvitation(partyId: Long, userEmail: String): List<BossPartyResponse> {
         val bossParty = bossPartyRepository.findByIdAndIsDeletedFalse(partyId)
             ?: throw IllegalStateException("존재하지 않거나 삭제된 파티입니다.")
 
+        // 해당 유저가 이 파티에 초대된 기록이 있는지 조회
         val bpm = bossPartyMemberRepository.findByBossPartyIdAndCharacterMemberEmail(partyId, userEmail)
-            ?: throw AccessDeniedException("파티 멤버가 아닙니다.")
+            ?: throw AccessDeniedException("해당 파티에 초대받은 기록이 없습니다.")
 
-        if(bpm.character.id != characterId){
-            throw AccessDeniedException("본인만 거절할 수 있습니다.")
-        }
-
+        // 초대(INVITED) 상태일 때만 거절 가능
         if (bpm.joinStatus != JoinStatus.INVITED) {
-            throw IllegalStateException("거절할 수 없는 상태입니다")
+            throw IllegalStateException("거절할 수 없는 상태입니다. (현재 상태: ${bpm.joinStatus})")
         }
 
+        val declinerName = bpm.character.characterName
+
+        // 초대 정보 삭제 (거절)
         bossPartyMemberRepository.delete(bpm)
+
+        // 파티장에게 거절 알림 발송
+        notificationService.sendBossPartyDeclineAlarm(
+            partyId = partyId,
+            declinerCharacterName = declinerName,
+            partyTitle = bossParty.title,
+            boss = bossParty.boss,
+            bossDifficulty = bossParty.difficulty
+        )
+
+        // 갱신된 내 파티 리스트 반환
+        return getBossParties(userEmail)
     }
 
     // 추방
@@ -668,53 +699,71 @@ class BossPartyService(
             throw IllegalStateException("파티장은 추방할 수 없습니다")
         }
 
+        val kickedName = target.character.characterName
+
         bossPartyMemberRepository.delete(target)
+
+        notificationService.sendBossPartyKickAlarm(
+            partyId = partyId,
+            kickedCharacterId = characterId,
+            kickedCharacterName = kickedName,
+            partyTitle = bossParty.title,
+            boss = bossParty.boss,
+            bossDifficulty = bossParty.difficulty
+        )
     }
 
     // 탈퇴
     @Transactional
-    fun leaveParty(partyId: Long, characterId: Long, userEmail: String) {
+    fun leaveParty(partyId: Long, userEmail: String): List<BossPartyResponse> {
         val bossParty = bossPartyRepository.findByIdAndIsDeletedFalse(partyId)
             ?: throw IllegalStateException("존재하지 않거나 삭제된 파티입니다.")
 
-//        val bossParty = bossPartyRepository.findById(partyId)
-//            .orElseThrow { IllegalStateException("파티가 존재하지 않습니다.") }
-
+        // 1. 유저 이메일과 파티 ID로 참여 정보 조회
         val bpm = bossPartyMemberRepository
             .findByBossPartyIdAndCharacterMemberEmail(partyId, userEmail)
             ?: throw AccessDeniedException("파티 멤버가 아닙니다.")
 
-        if (bpm.character.id != characterId) {
-            throw AccessDeniedException("본인만 탈퇴할 수 있습니다.")
-        }
+        val leaverName = bpm.character.characterName
+        val leaverCharacterId = bpm.character.id // 탈퇴하는 캐릭터의 ID 보관
+        var newLeaderName: String? = null
 
-        // ACCEPTED 멤버 수만 카운트 (초대 상태 제외)
+        // 2. 현재 활성화된(ACCEPTED) 멤버 목록 추출
         val acceptedMembers = bossPartyMemberRepository
             .findAllByBossPartyId(partyId)
             .filter { it.joinStatus == JoinStatus.ACCEPTED }
 
-        val acceptedCount = acceptedMembers.size
-
-        // 1명만 남은 경우 → 파티 논리 삭제
-        if (acceptedCount == 1) {
+        // 3. 1명만 남은 경우 처리
+        if (acceptedMembers.size == 1) {
             bossParty.isDeleted = true
-            bossPartyRepository.save(bossParty) // <-- 명시적 저장
             bossPartyMemberRepository.delete(bpm)
-            return
+            return getBossParties(userEmail)
         }
 
-        // 리더가 탈퇴하는 경우 → 자동 위임
+        // 4. 리더 탈퇴 시 자동 위임 처리
         if (bpm.role == PartyRole.LEADER) {
-
             val newLeader = acceptedMembers
-                .firstOrNull { it.character.id != characterId }
+                .firstOrNull { it.character.id != leaverCharacterId } // 보관해둔 ID와 비교
                 ?: throw IllegalStateException("양도할 멤버가 없습니다.")
 
             newLeader.role = PartyRole.LEADER
+            newLeaderName = newLeader.character.characterName
         }
 
-        // 본인 삭제
-        bossPartyMemberRepository.delete(bpm)
+        // 5. 본인 데이터 삭제 및 알림 발송
+        bpm.joinStatus = JoinStatus.DELETED
+        bpm.role = PartyRole.MEMBER
+
+        notificationService.sendBossPartyLeaveAlarm(
+            partyId = partyId,
+            leaverName = leaverName,
+            newLeaderName = newLeaderName,
+            partyTitle = bossParty.title,
+            boss = bossParty.boss,
+            bossDifficulty = bossParty.difficulty
+        )
+
+        return getBossParties(userEmail)
     }
 
     // 파티장 양도
@@ -750,5 +799,14 @@ class BossPartyService(
         // 역할 변경
         currentLeader.role = PartyRole.MEMBER
         targetMember.role = PartyRole.LEADER
+
+        notificationService.sendBossPartyTransferAlarm(
+            partyId = bossParty.id,
+            newLeaderId = targetMember.character.id,
+            newLeaderName = targetMember.character.characterName,
+            partyTitle = bossParty.title,
+            boss = bossParty.boss,
+            bossDifficulty = bossParty.difficulty
+        )
     }
 }

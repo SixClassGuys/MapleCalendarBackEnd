@@ -256,30 +256,26 @@ class BossPartyController(
     @PostMapping("/{bossPartyId}/accept")
     fun acceptInvitation(
         @AuthenticationPrincipal userDetails: UserDetails,
-        @PathVariable bossPartyId: Long,
-        @RequestParam characterId: Long
-    ): ResponseEntity<Unit> {
-        bossPartyService.acceptInvitation(
+        @PathVariable bossPartyId: Long
+    ): ResponseEntity<Long> {
+        val response = bossPartyService.acceptInvitation(
             partyId = bossPartyId,
-            characterId = characterId,
             userEmail = userDetails.username
         )
-        return ResponseEntity.ok().build()
+        return ResponseEntity.ok(response)
     }
 
     @Operation(summary = "파티 초대 거절", description = "초대받은 파티를 거절합니다")
     @DeleteMapping("/{bossPartyId}/decline")
     fun declineInvitation(
         @AuthenticationPrincipal userDetails: UserDetails,
-        @PathVariable bossPartyId: Long,
-        @RequestParam characterId: Long
-    ): ResponseEntity<Unit> {
-        bossPartyService.declineInvitation(
+        @PathVariable bossPartyId: Long
+    ): ResponseEntity<List<BossPartyResponse>> {
+        val response = bossPartyService.declineInvitation(
             partyId = bossPartyId,
-            characterId = characterId,
             userEmail = userDetails.username
         )
-        return ResponseEntity.ok().build()
+        return ResponseEntity.ok(response)
     }
 
     @Operation(summary = "파티 멤버 추방", description = "리더가 멤버를 파티에서 추방합니다")
@@ -301,15 +297,13 @@ class BossPartyController(
     @DeleteMapping("/{bossPartyId}/leave")
     fun leaveParty(
         @AuthenticationPrincipal userDetails: UserDetails,
-        @PathVariable bossPartyId: Long,
-        @RequestParam characterId: Long
-    ): ResponseEntity<Unit> {
-        bossPartyService.leaveParty(
+        @PathVariable bossPartyId: Long
+    ): ResponseEntity<List<BossPartyResponse>> {
+        val response = bossPartyService.leaveParty(
             partyId = bossPartyId,
-            characterId = characterId,
             userEmail = userDetails.username
         )
-        return ResponseEntity.ok().build()
+        return ResponseEntity.ok(response)
     }
 
     @Operation(summary = "파티장 양도", description = "리더가 다른 멤버에게 파티장 권한을 양도합니다")

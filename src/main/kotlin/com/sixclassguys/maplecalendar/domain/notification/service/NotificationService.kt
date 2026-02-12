@@ -5,13 +5,17 @@ import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.Message
 import com.google.firebase.messaging.Notification
 import com.sixclassguys.maplecalendar.domain.boss.entity.BossPartyAlarmTime
+import com.sixclassguys.maplecalendar.domain.boss.enums.BossDifficulty
+import com.sixclassguys.maplecalendar.domain.boss.enums.BossType
 import com.sixclassguys.maplecalendar.domain.boss.enums.JoinStatus
+import com.sixclassguys.maplecalendar.domain.boss.enums.PartyRole
 import com.sixclassguys.maplecalendar.domain.boss.enums.RegistrationMode
 import com.sixclassguys.maplecalendar.domain.boss.handler.BossPartyChatWebSocketHandler
 import com.sixclassguys.maplecalendar.domain.boss.repository.BossPartyAlarmTimeRepository
 import com.sixclassguys.maplecalendar.domain.boss.repository.BossPartyMemberRepository
 import com.sixclassguys.maplecalendar.domain.boss.repository.BossPartyRepository
 import com.sixclassguys.maplecalendar.domain.boss.repository.MemberBossPartyMappingRepository
+import com.sixclassguys.maplecalendar.domain.character.repository.MapleCharacterRepository
 import com.sixclassguys.maplecalendar.domain.eventalarm.repository.EventAlarmTimeRepository
 import com.sixclassguys.maplecalendar.domain.member.entity.Member
 import com.sixclassguys.maplecalendar.domain.member.repository.MemberRepository
@@ -37,6 +41,7 @@ class NotificationService(
     private val redisTemplate: RedisTemplate<String, String>,
     private val notificationTokenRepository: NotificationTokenRepository,
     private val eventAlarmTimeRepository: EventAlarmTimeRepository,
+    private val mapleCharacterRepository: MapleCharacterRepository,
     private val bossPartyRepository: BossPartyRepository,
     private val bossPartyMemberRepository: BossPartyMemberRepository,
     private val bossPartyAlarmTimeRepository: BossPartyAlarmTimeRepository,
@@ -141,6 +146,265 @@ class NotificationService(
                     } catch (e: Exception) {
                         log.error("❌ 채팅 알림 발송 실패: 유저=${member.id}, 토큰=${tokenEntity.token.take(10)}")
                     }
+                }
+            }
+        }
+    }
+
+    @Transactional(readOnly = true)
+    fun sendBossPartyInvitationAlarm(
+        partyId: Long,
+        inviteeCharacterId: Long,
+        partyTitle: String,
+        boss: BossType,
+        bossDifficulty: BossDifficulty
+    ) {
+        // 1. 초대받은 캐릭터와 그 캐릭터의 소유자(Member) 및 토큰 조회
+        val invitee = bossPartyMemberRepository.findByBossPartyIdAndCharacterId(partyId, inviteeCharacterId)
+            ?: return
+
+        val member = invitee.character.member
+
+        member.tokens.forEach { tokenEntity ->
+            val message = Message.builder()
+                .setToken(tokenEntity.token)
+                .setNotification(
+                    Notification.builder()
+                        .setTitle("새로운 파티 초대")
+                        .setBody("[${boss.name}(${bossDifficulty.name})] $partyTitle 파티에서 초대를 보냈습니다.")
+                        .build()
+                )
+                .putData("type", "BOSS_INVITATION") // 앱에서 이 타입을 보고 다이얼로그를 띄울지 결정
+                .putData("contentId", partyId.toString())
+                .build()
+
+            try {
+                FirebaseMessaging.getInstance().send(message)
+                log.info("💌 파티 초대 알림 발송 성공: 유저=${member.id}, 캐릭터=${invitee.character.characterName}")
+            } catch (e: Exception) {
+                log.error("❌ 초대 알림 발송 실패: 토큰=${tokenEntity.token.take(10)}..., 사유=${e.message}")
+            }
+        }
+    }
+
+    @Transactional(readOnly = true)
+    fun sendBossPartyAcceptanceAlarm(
+        partyId: Long,
+        joinerCharacterName: String,
+        partyTitle: String,
+        boss: BossType,
+        bossDifficulty: BossDifficulty
+    ) {
+        // 1. 해당 파티의 모든 승인된 멤버(ACCEPTED) 조회 (방금 수락한 본인 포함)
+        val members = bossPartyMemberRepository.findAllWithMemberAndTokensByPartyId(partyId, JoinStatus.ACCEPTED)
+
+        members.forEach { partyMember ->
+            val member = partyMember.character.member
+
+            // 본인에게는 "수락 완료" 알림을 보낼 필요가 없다면 제외 로직 추가 가능
+            // if (partyMember.character.characterName == joinerCharacterName) return@forEach
+
+            member.tokens.forEach { tokenEntity ->
+                val message = Message.builder()
+                    .setToken(tokenEntity.token)
+                    // 상단 알림 팝업 설정
+                    .setNotification(
+                        Notification.builder()
+                            .setTitle("파티원 합류")
+                            .setBody("[${boss.name}(${bossDifficulty.name})] ${joinerCharacterName}님이 $partyTitle 파티에 합류했습니다.")
+                            .build()
+                    )
+                    // 앱 내부 로직 처리를 위한 데이터 설정
+                    .putData("type", "MEMBER_JOINED")
+                    .putData("contentId", partyId.toString())
+                    .build()
+
+                try {
+                    FirebaseMessaging.getInstance().send(message)
+                } catch (e: Exception) {
+                    log.error("❌ 수락 알림 발송 실패: 유저=${member.id}, 사유=${e.message}")
+                }
+            }
+        }
+    }
+
+    @Transactional(readOnly = true)
+    fun sendBossPartyDeclineAlarm(
+        partyId: Long,
+        declinerCharacterName: String,
+        partyTitle: String,
+        boss: BossType,
+        bossDifficulty: BossDifficulty
+    ) {
+        // 1. 해당 파티의 파티장(LEADER) 조회
+        val leader = bossPartyMemberRepository.findAllByBossPartyId(partyId)
+            .find { it.role == PartyRole.LEADER && it.joinStatus == JoinStatus.ACCEPTED }
+            ?: return
+
+        val member = leader.character.member
+
+        member.tokens.forEach { tokenEntity ->
+            val message = Message.builder()
+                .setToken(tokenEntity.token)
+                .setNotification(
+                    Notification.builder()
+                        .setTitle("파티 초대 거절")
+                        .setBody("[${boss.name}(${bossDifficulty.name})] ${declinerCharacterName}님이 $partyTitle 파티 초대를 거절했습니다.")
+                        .build()
+                )
+                .putData("type", "INVITATION_DECLINED")
+                .putData("contentId", partyId.toString())
+                .build()
+
+            try {
+                FirebaseMessaging.getInstance().send(message)
+                log.info("🚫 거절 알림 발송 성공: 파티장 유저=${member.id}, 거절자=$declinerCharacterName")
+            } catch (e: Exception) {
+                log.error("❌ 거절 알림 발송 실패: 파티장 토큰=${tokenEntity.token.take(10)}, 사유=${e.message}")
+            }
+        }
+    }
+
+    @Transactional(readOnly = true)
+    fun sendBossPartyKickAlarm(
+        partyId: Long,
+        kickedCharacterId: Long,
+        kickedCharacterName: String,
+        partyTitle: String,
+        boss: BossType,
+        bossDifficulty: BossDifficulty
+    ) {
+        // 1. 추방된 멤버와 현재 파티에 남은 모든 멤버(ACCEPTED)를 한꺼번에 조회
+        // (target은 이미 delete 되었을 수 있으므로, Service에서 넘겨받은 ID와 Name 정보를 활용합니다)
+        val remainingMembers = bossPartyMemberRepository.findAllWithMemberAndTokensByPartyId(partyId, JoinStatus.ACCEPTED)
+
+        // 2. 추방된 멤버 정보 조회 (알림용)
+        val kickedMember = mapleCharacterRepository.findByIdOrNull(kickedCharacterId)?.member
+
+        // 💡 A. 추방된 당사자에게 보내는 알림
+        kickedMember?.tokens?.forEach { tokenEntity ->
+            val message = Message.builder()
+                .setToken(tokenEntity.token)
+                .setNotification(
+                    Notification.builder()
+                        .setTitle("파티 탈퇴 알림")
+                        .setBody("[${boss.name}(${bossDifficulty.name})] $partyTitle 파티에서 추방되었습니다.")
+                        .build()
+                )
+                .putData("type", "YOU_ARE_KICKED") // 앱에서 이 타입을 받으면 즉시 홈으로 이동 처리
+                .putData("contentId", partyId.toString())
+                .build()
+
+            try { FirebaseMessaging.getInstance().send(message) } catch (e: Exception) { /* 로그 생략 */ }
+        }
+
+        // 💡 B. 남은 파티원들(파티장 포함)에게 보내는 알림
+        remainingMembers.forEach { partyMember ->
+            val member = partyMember.character.member
+
+            member.tokens.forEach { tokenEntity ->
+                val message = Message.builder()
+                    .setToken(tokenEntity.token)
+                    .setNotification(
+                        Notification.builder()
+                            .setTitle("파티원 추방")
+                            .setBody("[${boss.name}(${bossDifficulty.name})] ${kickedCharacterName}님이 $partyTitle 파티에서 추방되었습니다.")
+                            .build()
+                    )
+                    .putData("type", "MEMBER_KICKED") // 리스트 갱신 신호
+                    .putData("contentId", partyId.toString())
+                    .build()
+
+                try { FirebaseMessaging.getInstance().send(message) } catch (e: Exception) { /* 로그 생략 */ }
+            }
+        }
+    }
+
+    @Transactional(readOnly = true)
+    fun sendBossPartyLeaveAlarm(
+        partyId: Long,
+        leaverName: String,
+        newLeaderName: String? = null,
+        partyTitle: String,
+        boss: BossType,
+        bossDifficulty: BossDifficulty
+    ) {
+        // 1. 남은 멤버(ACCEPTED) 조회
+        val remainingMembers = bossPartyMemberRepository.findAllWithMemberAndTokensByPartyId(partyId, JoinStatus.ACCEPTED)
+
+        remainingMembers.forEach { partyMember ->
+            val member = partyMember.character.member
+
+            // 메시지 구성: 리더 위임 여부에 따라 내용 변경
+            val messageBody = if (newLeaderName != null) {
+                "[${boss.name}(${bossDifficulty.name})] ${leaverName}님이 탈퇴하여 ${newLeaderName}님이 $partyTitle 파티의 새로운 파티장이 되었습니다."
+            } else {
+                "[${boss.name}(${bossDifficulty.name})] ${leaverName}님이 $partyTitle 파티를 나갔습니다."
+            }
+
+            member.tokens.forEach { tokenEntity ->
+                val message = Message.builder()
+                    .setToken(tokenEntity.token)
+                    .setNotification(
+                        Notification.builder()
+                            .setTitle("파티원 탈퇴")
+                            .setBody(messageBody)
+                            .build()
+                    )
+                    .putData("type", "MEMBER_LEFT")
+                    .putData("contentId", partyId.toString())
+                    .build()
+
+                try {
+                    FirebaseMessaging.getInstance().send(message)
+                } catch (e: Exception) {
+                    log.error("❌ 탈퇴 알림 발송 실패: 유저=${member.id}, 사유=${e.message}")
+                }
+            }
+        }
+    }
+
+    @Transactional(readOnly = true)
+    fun sendBossPartyTransferAlarm(
+        partyId: Long,
+        newLeaderId: Long,
+        newLeaderName: String,
+        partyTitle: String,
+        boss: BossType,
+        bossDifficulty: BossDifficulty
+    ) {
+        // 1. 파티의 모든 승인된 멤버(ACCEPTED) 조회
+        val members = bossPartyMemberRepository.findAllWithMemberAndTokensByPartyId(partyId, JoinStatus.ACCEPTED)
+
+        members.forEach { partyMember ->
+            val member = partyMember.character.member
+            val isNewLeader = partyMember.character.id == newLeaderId
+
+            // 메시지 분기: 양도받은 당사자 vs 나머지 파티원
+            val (title, body) = if (isNewLeader) {
+                "파티장 권한 위임" to "[${boss.name}(${bossDifficulty.name})] $partyTitle 파티의 파티장이 되었습니다!"
+            } else {
+                "파티장 변경" to "[${boss.name}(${bossDifficulty.name})] $partyTitle 파티의 파티장이 ${newLeaderName}님으로 변경되었습니다."
+            }
+
+            member.tokens.forEach { tokenEntity ->
+                val message = Message.builder()
+                    .setToken(tokenEntity.token)
+                    .setNotification(
+                        Notification.builder()
+                            .setTitle(title)
+                            .setBody(body)
+                            .build()
+                    )
+                    .putData("type", "LEADER_TRANSFERRED")
+                    .putData("contentId", partyId.toString())
+                    .putData("newLeaderId", newLeaderId.toString())
+                    .build()
+
+                try {
+                    FirebaseMessaging.getInstance().send(message)
+                } catch (e: Exception) {
+                    log.error("❌ 양도 알림 발송 실패: 유저=${member.id}, 사유=${e.message}")
                 }
             }
         }
@@ -268,7 +532,9 @@ class NotificationService(
             val eventNames = endingEvents.take(2).joinToString(", ") { it.title }
             val suffix = if (endingEvents.size > 2) " 외 ${endingEvents.size - 2}개" else ""
             "오늘 [$eventNames]$suffix 이벤트가 종료됩니다! 보상을 수령하셨나요?"
-        } else { randomMessages.random() }
+        } else {
+            randomMessages.random()
+        }
 
         // 3. 모든 토큰 조회
         val tokens = notificationTokenRepository.findAllByMemberIsGlobalAlarmEnabledTrue()
@@ -287,8 +553,9 @@ class NotificationService(
                 )
                 .setAndroidConfig(
                     AndroidConfig.builder()
-                    .setPriority(AndroidConfig.Priority.HIGH)
-                    .build())
+                        .setPriority(AndroidConfig.Priority.HIGH)
+                        .build()
+                )
                 .build()
 
             try {
