@@ -87,9 +87,10 @@ class MapleCharacterController(
 
     @GetMapping("/search")
     fun searchCharacters(
+        @AuthenticationPrincipal userDetails: UserDetails,
         @RequestParam name: String
     ): ResponseEntity<MapleCharacterListResponse> {
-        val response = mapleCharacterService.searchCharactersByName(name)
+        val response = mapleCharacterService.searchCharactersByName(userDetails.username, name)
         return ResponseEntity.ok(response)
     }
 }

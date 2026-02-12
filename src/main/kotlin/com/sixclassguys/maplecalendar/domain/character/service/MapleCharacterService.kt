@@ -320,25 +320,28 @@ class MapleCharacterService(
     }
 
     // 캐릭터 이름으로 관련 db에 저장된 캐릭터 이름 들어간 캐릭터 찾기
-    fun searchCharactersByName(namePart: String): MapleCharacterListResponse {
+    fun searchCharactersByName(email: String, namePart: String): MapleCharacterListResponse {
+        val member = memberRepository.findByEmail(email)
+            ?: throw EntityNotFoundException("유저를 찾을 수 없습니다.")
+
         val characters = mapleCharacterRepository.findAllByCharacterNameContainingIgnoreCase(namePart)
 
-        // CharacterSummaryResponse로 매핑
-        val summaries = characters.map { c ->
-            CharacterSummaryResponse(
-                id = c.id,
-                ocid = c.ocid,
-                characterName = c.characterName,
-                characterLevel = c.characterLevel,
-                characterClass = c.characterClass,
-                characterImage = c.characterImage,
-                isRepresentativeCharacter = false // 대표 캐릭터 여부를 DB에서 가져오면 바꿀 수 있음
-            )
-        }
+        val groupedByWorld = characters
+            .groupBy { it.worldName } // DB에 저장된 worldName 그대로 사용
+            .mapValues { (_, characters) ->
+                characters.map { entity ->
+                    CharacterSummaryResponse(
+                        id = entity.id ?: 0L,
+                        ocid = entity.ocid,
+                        characterName = entity.characterName,
+                        characterLevel = entity.characterLevel,
+                        characterClass = entity.characterClass,
+                        characterImage = entity.characterImage,
+                        isRepresentativeCharacter = false
+                    )
+                }.sortedByDescending { it.characterLevel }
+            }
 
-        // 예시: 월드별로 그룹화
-        val grouped = summaries.groupBy { it.characterName } // 필요하면 다른 기준으로 변경 가능
-
-        return MapleCharacterListResponse(groupedCharacters = grouped)
+        return MapleCharacterListResponse(groupedCharacters = groupedByWorld)
     }
 }
