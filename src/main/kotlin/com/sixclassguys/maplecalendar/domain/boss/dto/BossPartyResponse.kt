@@ -2,6 +2,7 @@ package com.sixclassguys.maplecalendar.domain.boss.dto
 
 import com.sixclassguys.maplecalendar.domain.boss.enums.BossDifficulty
 import com.sixclassguys.maplecalendar.domain.boss.enums.BossType
+import com.sixclassguys.maplecalendar.domain.boss.enums.JoinStatus
 import java.time.LocalDateTime
 
 data class BossPartyResponse(
@@ -14,6 +15,7 @@ data class BossPartyResponse(
     val isChatAlarmEnabled: Boolean,
     val leaderNickname: String,
     val memberCount: Int,
+    val joinStatus: JoinStatus,
     val createdAt: LocalDateTime?,
     val updatedAt: LocalDateTime?
 )

@@ -318,4 +318,30 @@ class MapleCharacterService(
         )
         mapleCharacterRepository.save(newCharacter)
     }
+
+    // 캐릭터 이름으로 관련 db에 저장된 캐릭터 이름 들어간 캐릭터 찾기
+    fun searchCharactersByName(email: String, namePart: String): MapleCharacterListResponse {
+        val member = memberRepository.findByEmail(email)
+            ?: throw EntityNotFoundException("유저를 찾을 수 없습니다.")
+
+        val characters = mapleCharacterRepository.findAllByCharacterNameContainingIgnoreCase(namePart)
+
+        val groupedByWorld = characters
+            .groupBy { it.worldName } // DB에 저장된 worldName 그대로 사용
+            .mapValues { (_, characters) ->
+                characters.map { entity ->
+                    CharacterSummaryResponse(
+                        id = entity.id ?: 0L,
+                        ocid = entity.ocid,
+                        characterName = entity.characterName,
+                        characterLevel = entity.characterLevel,
+                        characterClass = entity.characterClass,
+                        characterImage = entity.characterImage,
+                        isRepresentativeCharacter = false
+                    )
+                }.sortedByDescending { it.characterLevel }
+            }
+
+        return MapleCharacterListResponse(groupedCharacters = groupedByWorld)
+    }
 }
