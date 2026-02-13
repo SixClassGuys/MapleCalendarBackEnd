@@ -44,6 +44,8 @@ import org.springframework.data.domain.Sort
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import org.springframework.transaction.support.TransactionSynchronization
+import org.springframework.transaction.support.TransactionSynchronizationManager
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -605,13 +607,18 @@ class BossPartyService(
             )
         )
 
-        notificationService.sendBossPartyInvitationAlarm(
-            partyId = bossParty.id,
-            inviteeCharacterId = character.id,
-            partyTitle = bossParty.title,
-            boss = bossParty.boss,
-            bossDifficulty = bossParty.difficulty
-        )
+        TransactionSynchronizationManager.registerSynchronization(object : TransactionSynchronization {
+
+            override fun afterCommit() {
+                notificationService.sendBossPartyInvitationAlarm(
+                    partyId = bossParty.id,
+                    inviteeCharacterId = character.id,
+                    partyTitle = bossParty.title,
+                    boss = bossParty.boss,
+                    bossDifficulty = bossParty.difficulty
+                )
+            }
+        })
     }
 
     // 초대 수락
@@ -633,14 +640,19 @@ class BossPartyService(
         // 상태 변경 (수락)
         invitee.joinStatus = JoinStatus.ACCEPTED
 
-        // 알림 발송
-        notificationService.sendBossPartyAcceptanceAlarm(
-            partyId = bossParty.id,
-            joinedCharacter = invitee.character,
-            partyTitle = bossParty.title,
-            boss = bossParty.boss,
-            bossDifficulty = bossParty.difficulty
-        )
+        // 2. 🚀 트랜잭션이 성공적으로 COMMIT된 후에만 알림 발송
+        TransactionSynchronizationManager.registerSynchronization(object : TransactionSynchronization {
+
+            override fun afterCommit() {
+                notificationService.sendBossPartyAcceptanceAlarm(
+                    partyId = bossParty.id,
+                    joinedCharacter = invitee.character,
+                    partyTitle = bossParty.title,
+                    boss = bossParty.boss,
+                    bossDifficulty = bossParty.difficulty
+                )
+            }
+        })
 
         return bossParty.id
     }
@@ -664,13 +676,18 @@ class BossPartyService(
         bossPartyMemberRepository.delete(bpm)
 
         // 파티장에게 거절 알림 발송
-        notificationService.sendBossPartyDeclineAlarm(
-            partyId = partyId,
-            declinerCharacter = bpm.character,
-            partyTitle = bossParty.title,
-            boss = bossParty.boss,
-            bossDifficulty = bossParty.difficulty
-        )
+        TransactionSynchronizationManager.registerSynchronization(object : TransactionSynchronization {
+
+            override fun afterCommit() {
+                notificationService.sendBossPartyDeclineAlarm(
+                    partyId = partyId,
+                    declinerCharacter = bpm.character,
+                    partyTitle = bossParty.title,
+                    boss = bossParty.boss,
+                    bossDifficulty = bossParty.difficulty
+                )
+            }
+        })
 
         // 갱신된 내 파티 리스트 반환
         return getBossParties(userEmail)
@@ -700,13 +717,18 @@ class BossPartyService(
 
         bossPartyMemberRepository.delete(target)
 
-        notificationService.sendBossPartyKickAlarm(
-            partyId = partyId,
-            kickedCharacter = target.character,
-            partyTitle = bossParty.title,
-            boss = bossParty.boss,
-            bossDifficulty = bossParty.difficulty
-        )
+        TransactionSynchronizationManager.registerSynchronization(object : TransactionSynchronization {
+
+            override fun afterCommit() {
+                notificationService.sendBossPartyKickAlarm(
+                    partyId = partyId,
+                    kickedCharacter = target.character,
+                    partyTitle = bossParty.title,
+                    boss = bossParty.boss,
+                    bossDifficulty = bossParty.difficulty
+                )
+            }
+        })
     }
 
     // 탈퇴
@@ -749,14 +771,19 @@ class BossPartyService(
         bpm.joinStatus = JoinStatus.DELETED
         bpm.role = PartyRole.MEMBER
 
-        notificationService.sendBossPartyLeaveAlarm(
-            partyId = partyId,
-            leaver = bpm.character,
-            newLeaderName = newLeaderName,
-            partyTitle = bossParty.title,
-            boss = bossParty.boss,
-            bossDifficulty = bossParty.difficulty
-        )
+        TransactionSynchronizationManager.registerSynchronization(object : TransactionSynchronization {
+
+            override fun afterCommit() {
+                notificationService.sendBossPartyLeaveAlarm(
+                    partyId = partyId,
+                    leaver = bpm.character,
+                    newLeaderName = newLeaderName,
+                    partyTitle = bossParty.title,
+                    boss = bossParty.boss,
+                    bossDifficulty = bossParty.difficulty
+                )
+            }
+        })
 
         return getBossParties(userEmail)
     }
@@ -795,12 +822,17 @@ class BossPartyService(
         currentLeader.role = PartyRole.MEMBER
         targetMember.role = PartyRole.LEADER
 
-        notificationService.sendBossPartyTransferAlarm(
-            partyId = bossParty.id,
-            newLeader = targetMember.character,
-            partyTitle = bossParty.title,
-            boss = bossParty.boss,
-            bossDifficulty = bossParty.difficulty
-        )
+        TransactionSynchronizationManager.registerSynchronization(object : TransactionSynchronization {
+
+            override fun afterCommit() {
+                notificationService.sendBossPartyTransferAlarm(
+                    partyId = bossParty.id,
+                    newLeader = targetMember.character,
+                    partyTitle = bossParty.title,
+                    boss = bossParty.boss,
+                    bossDifficulty = bossParty.difficulty
+                )
+            }
+        })
     }
 }
