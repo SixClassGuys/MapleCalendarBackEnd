@@ -58,6 +58,8 @@ class NexonApiClient(
     fun getCharacters(apiKey: String): List<Account> {
         val url = "${nexonProperties.baseUrl}/character/list"
 
+        log.info("API Key: $apiKey")
+
         // 헤더에 API Key 설정
         val headers = HttpHeaders().apply {
             set("x-nxopen-api-key", apiKey) // 반드시 유저의 넥슨 계정으로 발급받은 API Key를 사용
