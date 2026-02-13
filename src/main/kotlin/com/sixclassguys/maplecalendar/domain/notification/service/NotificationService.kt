@@ -212,6 +212,12 @@ class NotificationService(
                     // 본인에게는 Notification 없이 Data만 담은 Silent Push 발송
                     // 앱의 FirebaseMessagingService가 수신하여 화면 이동 처리
                     messageBuilder.putData("acceptIntent", "GO_TO_BOSS_PARTY")
+                    messageBuilder.setNotification(
+                        Notification.builder()
+                            .setTitle("파티 합류")
+                            .setBody("[${boss.bossName}(${bossDifficulty.name})] $partyTitle 파티에 합류했습니다.")
+                            .build()
+                    )
                 } else {
                     // 타인에게는 상단 알림 팝업(Notification)을 포함해서 발송
                     messageBuilder.setNotification(
