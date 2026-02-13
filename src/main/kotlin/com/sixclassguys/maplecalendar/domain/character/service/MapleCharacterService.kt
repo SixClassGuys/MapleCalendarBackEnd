@@ -239,43 +239,63 @@ class MapleCharacterService(
 
     @Async("characterSyncExecutor")
     @Transactional
-    fun refreshUserCharacters(member: Member) {
+    fun refreshUserCharacters(memberId: Long) {
+        val member = memberRepository.findById(memberId).orElseThrow()
         val existingCharacters = mapleCharacterRepository.findAllByMember(member)
-        val processedOcids = mutableSetOf<String>() // 중복 방지용 Set
+        val processedOcids = mutableSetOf<String>()
 
         member.nexonApiKeys.forEach { apiKeyEntity ->
-            val accountList = nexonApiClient.getCharacters(apiKeyEntity.nexonApiKey)
+            try {
+                // 🚀 ID로 조회했으므로 Converter에 의해 복호화된 키가 사용됩니다.
+                val accountList = nexonApiClient.getCharacters(apiKeyEntity.nexonApiKey)
 
-            accountList.forEach { account ->
-                account.characters.forEach { characterDto ->
-                    // 이미 다른 API 키를 통해 처리된 캐릭터라면 스킵
-                    if (processedOcids.contains(characterDto.ocid)) return@forEach
-                    processedOcids.add(characterDto.ocid)
+                accountList.forEach { account ->
+                    account.characters.forEach { characterDto ->
+                        // 1. 이미 처리된 OCID 스킵 (continue)
+                        if (processedOcids.contains(characterDto.ocid)) return@forEach
 
-                    // 닉네임과 월드가 모두 일치하는 캐릭터 찾기
-                    val match = existingCharacters.find { it.characterName == characterDto.characterName }
+                        // 2. 무조건 응답에 있는 OCID는 처리 목록에 추가
+                        processedOcids.add(characterDto.ocid)
 
-                    if (match != null) {
-                        if (match.ocid != characterDto.ocid) {
-                            // CASE 1: 닉네임은 같은데 OCID가 바뀐 경우
-                            match.isActive = false
-                            saveNewCharacter(member, characterDto)
-                            if (member.representativeOcid == match.ocid) {
-                                member.representativeOcid = characterDto.ocid
+                        val match = existingCharacters.find { it.characterName == characterDto.characterName }
+
+                        if (match != null) {
+                            if (match.ocid != characterDto.ocid) {
+                                // CASE 1: 닉네임은 같으나 OCID 변경 (삭제 후 재생성 등)
+                                match.isActive = false
+                                saveNewCharacter(member, characterDto)
+                                if (member.representativeOcid == match.ocid) {
+                                    member.representativeOcid = characterDto.ocid
+                                }
+                            } else {
+                                // CASE 2: 정보 업데이트
+                                updateCharacterInfo(match, characterDto)
                             }
                         } else {
-                            // CASE 2: 기존 캐릭터 정보가 업데이트된 경우
-                            updateCharacterInfo(match, characterDto)
+                            // CASE 3: DB에 없는 신규 캐릭터 발견 시 추가
+                            saveNewCharacter(member, characterDto)
                         }
                     }
                 }
+            } catch (e: Exception) {
+                log.error("API 동기화 중 에러 발생 (KeyID: ${apiKeyEntity.id}): ${e.message}")
+                // ⚠️ 특정 키 조회가 실패했다고 해서 다른 캐릭터를 다 지우면 안 되므로
+                // 이번 키의 루프만 스킵하거나 함수를 종료하는 판단이 필요합니다.
+                return@forEach
             }
         }
 
-        // CASE 3: 이번 API 응답에는 없는데 DB에는 isActive=true인 캐릭터들 (삭제/월드리프) 비활성화
+        // 💡 안전장치: API 응답이 한 명도 없다면 네트워크 문제일 수 있으므로 비활성화를 건너뜁니다.
+        if (processedOcids.isEmpty()) return
+
+        // CASE 4: API 응답엔 없는데 DB엔 활성화된 캐릭터들 처리
         existingCharacters.filter { it.isActive && it.ocid !in processedOcids }.forEach {
             it.isActive = false
             log.info("캐릭터 비활성화 처리: ${it.characterName} (${it.worldName})")
+
+            if (member.representativeOcid == it.ocid) {
+                member.representativeOcid = null
+            }
         }
     }
 

@@ -203,7 +203,7 @@ class AuthService(
         val user = authResult.member
 
         // 비동기로 보유한 모든 API Key로 캐릭터 목록을 조회 및 갱신
-        mapleCharacterService.refreshUserCharacters(user)
+        mapleCharacterService.refreshUserCharacters(user.id)
 
         // FCM 토큰 업데이트
         try {
