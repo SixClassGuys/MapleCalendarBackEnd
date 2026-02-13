@@ -35,6 +35,8 @@ class NexonApiClient(
             .build()
             .toUri() // URI 객체로 변환
 
+        log.info("API Key: ${nexonProperties.key}")
+
         // 2. 헤더 설정 (기존과 동일)
         val headers = HttpHeaders().apply {
             set("x-nxopen-api-key", nexonProperties.key)

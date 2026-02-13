@@ -83,6 +83,8 @@ jobs:
           EC2_USER: ${{ secrets.EC2_USER }}
           AWS_ACCOUNT_ID: ${{ steps.get-account-id.outputs.account_id }}
           ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
+          NEXON_API_KEY: ${{ secrets.NEXON_API_KEY }}
+          NEXON_API_BASE_URL: ${{ secrets.NEXON_API_BASE_URL }}
           GOOGLE_OAUTH_CLIENT_IDS_0: ${{ secrets.GOOGLE_CLIENT_ID_WEB }}
           GOOGLE_OAUTH_CLIENT_IDS_1: ${{ secrets.GOOGLE_CLIENT_ID_ANDROID }}
           IMAGE_TAG: latest
@@ -98,6 +100,8 @@ jobs:
             export AWS_ACCOUNT_ID=${AWS_ACCOUNT_ID}
             export IMAGE_TAG=${IMAGE_TAG}
             export ENCRYPTION_KEY=${ENCRYPTION_KEY}
+            export NEXON_API_KEY=${NEXON_API_KEY}
+            export NEXON_API_BASE_URL=${NEXON_API_BASE_URL}
             export GOOGLE_OAUTH_CLIENT_IDS_0=${GOOGLE_OAUTH_CLIENT_IDS_0}
             export GOOGLE_OAUTH_CLIENT_IDS_1=${GOOGLE_OAUTH_CLIENT_IDS_1}
             export JWT_SECRET=${JWT_SECRET}

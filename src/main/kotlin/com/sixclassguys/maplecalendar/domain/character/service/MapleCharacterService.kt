@@ -259,6 +259,7 @@ class MapleCharacterService(
 
                         val match = existingCharacters.find { it.characterName == characterDto.characterName }
 
+                        log.info("캐릭터: $match")
                         if (match != null) {
                             if (match.ocid != characterDto.ocid) {
                                 // CASE 1: 닉네임은 같으나 OCID 변경 (삭제 후 재생성 등)
