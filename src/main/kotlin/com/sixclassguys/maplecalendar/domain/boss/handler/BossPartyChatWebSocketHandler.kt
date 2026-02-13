@@ -83,6 +83,7 @@ class BossPartyChatWebSocketHandler(
         val characterId = getCharacterId(session)
 
         roomSessions[partyId]?.remove(session)
+        activeMembers[partyId]?.remove(characterId)
 
         val character = mapleCharacterRepository.findById(characterId).get()
         val leaveMsg = bossPartyService.saveMessage(
@@ -108,10 +109,21 @@ class BossPartyChatWebSocketHandler(
         return session.attributes["characterId"] as? Long ?: throw MapleCharacterNotFoundException()
     }
 
-    private fun broadcast(partyId: Long, message: BossPartyChatMessageResponse) {
-        val jsonResponse = objectMapper.writeValueAsString(message)
-        roomSessions[partyId]?.forEach { session ->
-            synchronized(session) { // 세션별 동기화로 꼬임 방지
+    private fun broadcast(partyId: Long, messageResponse: BossPartyChatMessageResponse) {
+        val sessions = roomSessions[partyId] ?: return
+
+        sessions.forEach { session ->
+            // 1. 세션에 저장된 '이 세션의 주인' ID를 꺼냄
+            val receiverId = session.attributes["characterId"] as? Long ?: 0L
+
+            // 2. 받는 사람에 맞춰 isMine을 다시 계산한 복사본 생성
+            val customizedMessage = messageResponse.copy(
+                isMine = (messageResponse.senderId == receiverId)
+            )
+
+            val jsonResponse = objectMapper.writeValueAsString(customizedMessage)
+
+            synchronized(session) {
                 if (session.isOpen) {
                     try {
                         session.sendMessage(TextMessage(jsonResponse))

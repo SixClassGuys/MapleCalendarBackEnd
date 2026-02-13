@@ -135,11 +135,15 @@ class NotificationService(
                 member.tokens.forEach { tokenEntity ->
                     val message = Message.builder()
                         .setToken(tokenEntity.token)
-                        // ✅ 채팅 알림은 푸시 팝업이 떠야 하므로 Data Payload 방식을 사용
+                        // ✅ 상단 알림 팝업을 띄우기 위해 Notification 추가
+                        .setNotification(
+                            Notification.builder()
+                                .setTitle(senderName)
+                                .setBody(content)
+                                .build()
+                        )
                         .putData("type", "BOSSCHAT")
                         .putData("contentId", partyId.toString())
-                        .putData("title", senderName)
-                        .putData("body", content)
                         .build()
 
                     try {
