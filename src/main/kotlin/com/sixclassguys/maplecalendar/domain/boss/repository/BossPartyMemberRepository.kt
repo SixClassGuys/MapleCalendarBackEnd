@@ -47,6 +47,19 @@ interface BossPartyMemberRepository : JpaRepository<BossPartyMember, Long> {
         WHERE m.bossParty.id = :partyId 
         AND mem.email = :email
     """)
+    fun findByBossPartyIdAndCharacterMemberEmailAcceptedAndInvited(
+        @Param("partyId") partyId: Long,
+        @Param("email") email: String
+    ): BossPartyMember?
+
+    @Query("""
+        SELECT m FROM BossPartyMember m 
+        JOIN FETCH m.character c
+        JOIN FETCH c.member mem
+        WHERE m.bossParty.id = :partyId 
+        AND mem.email = :email
+        AND m.joinStatus = 'INVITED'
+    """)
     fun findByBossPartyIdAndCharacterMemberEmailInvited(
         @Param("partyId") partyId: Long,
         @Param("email") email: String

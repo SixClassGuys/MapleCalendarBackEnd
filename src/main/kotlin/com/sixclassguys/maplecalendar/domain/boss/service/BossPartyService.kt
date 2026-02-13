@@ -664,7 +664,7 @@ class BossPartyService(
             ?: throw IllegalStateException("존재하지 않거나 삭제된 파티입니다.")
 
         // 해당 유저가 이 파티에 초대된 기록이 있는지 조회
-        val bpm = bossPartyMemberRepository.findByBossPartyIdAndCharacterMemberEmail(partyId, userEmail)
+        val bpm = bossPartyMemberRepository.findByBossPartyIdAndCharacterMemberEmailInvited(partyId, userEmail)
             ?: throw AccessDeniedException("해당 파티에 초대받은 기록이 없습니다.")
 
         // 초대(INVITED) 상태일 때만 거절 가능
