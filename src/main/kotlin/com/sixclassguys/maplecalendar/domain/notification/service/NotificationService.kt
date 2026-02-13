@@ -297,7 +297,7 @@ class NotificationService(
                 .setToken(tokenEntity.token)
                 .setNotification(
                     Notification.builder()
-                        .setTitle("파티 탈퇴 알림")
+                        .setTitle("파티 추방 알림")
                         .setBody("[${boss.bossName}(${bossDifficulty.name})] $partyTitle 파티에서 추방되었습니다.")
                         .build()
                 )
@@ -342,15 +342,34 @@ class NotificationService(
         // 1. 남은 멤버(ACCEPTED) 조회
         val remainingMembers = bossPartyMemberRepository.findAllWithMemberAndTokensByPartyId(partyId, JoinStatus.ACCEPTED)
 
+        val leavedMember = mapleCharacterRepository.findByIdOrNull(leaver.id)?.member
+
+        // 메시지 구성: 리더 위임 여부에 따라 내용 변경
+        val messageBody = if (newLeaderName != null) {
+            "[${boss.bossName}(${bossDifficulty.name})] ${leaver.characterName}님이 탈퇴하여 ${newLeaderName}님이 $partyTitle 파티의 새로운 파티장이 되었습니다."
+        } else {
+            "[${boss.bossName}(${bossDifficulty.name})] ${leaver.characterName}님이 $partyTitle 파티를 나갔습니다."
+        }
+
+        // 💡 A. 추방된 당사자에게 보내는 알림
+        leavedMember?.tokens?.forEach { tokenEntity ->
+            val message = Message.builder()
+                .setToken(tokenEntity.token)
+                .setNotification(
+                    Notification.builder()
+                        .setTitle("파티 탈퇴 알림")
+                        .setBody("[${boss.bossName}(${bossDifficulty.name})] $partyTitle 파티에서 탈퇴했습니다.")
+                        .build()
+                )
+                .putData("type", "YOU_ARE_LEAVED") // 앱에서 이 타입을 받으면 즉시 홈으로 이동 처리
+                .putData("contentId", partyId.toString())
+                .build()
+
+            try { FirebaseMessaging.getInstance().send(message) } catch (e: Exception) { /* 로그 생략 */ }
+        }
+
         remainingMembers.forEach { partyMember ->
             val member = partyMember.character.member
-
-            // 메시지 구성: 리더 위임 여부에 따라 내용 변경
-            val messageBody = if (newLeaderName != null) {
-                "[${boss.bossName}(${bossDifficulty.name})] ${leaver.characterName}님이 탈퇴하여 ${newLeaderName}님이 $partyTitle 파티의 새로운 파티장이 되었습니다."
-            } else {
-                "[${boss.bossName}(${bossDifficulty.name})] ${leaver.characterName}님이 $partyTitle 파티를 나갔습니다."
-            }
 
             member.tokens.forEach { tokenEntity ->
                 val message = Message.builder()
