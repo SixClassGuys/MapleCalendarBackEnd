@@ -152,7 +152,7 @@ class BossPartyService(
             ?: throw MemberNotFoundException()
 
         // 1. 파티원 리스트 변환 (기존 로직 동일)
-        val memberDetails = party.members.map { m ->
+        val memberDetails = party.members.filter{ it.joinStatus == JoinStatus.ACCEPTED }.map { m ->
             BossPartyMemberDetail(
                 characterId = m.character.id,
                 characterName = m.character.characterName,
@@ -636,7 +636,7 @@ class BossPartyService(
         // 알림 발송
         notificationService.sendBossPartyAcceptanceAlarm(
             partyId = bossParty.id,
-            joinerCharacterName = invitee.character.characterName, // 초대받았던 그 캐릭터의 이름
+            joinedCharacter = invitee.character,
             partyTitle = bossParty.title,
             boss = bossParty.boss,
             bossDifficulty = bossParty.difficulty
@@ -660,15 +660,13 @@ class BossPartyService(
             throw IllegalStateException("거절할 수 없는 상태입니다. (현재 상태: ${bpm.joinStatus})")
         }
 
-        val declinerName = bpm.character.characterName
-
         // 초대 정보 삭제 (거절)
         bossPartyMemberRepository.delete(bpm)
 
         // 파티장에게 거절 알림 발송
         notificationService.sendBossPartyDeclineAlarm(
             partyId = partyId,
-            declinerCharacterName = declinerName,
+            declinerCharacter = bpm.character,
             partyTitle = bossParty.title,
             boss = bossParty.boss,
             bossDifficulty = bossParty.difficulty
@@ -700,14 +698,11 @@ class BossPartyService(
             throw IllegalStateException("파티장은 추방할 수 없습니다")
         }
 
-        val kickedName = target.character.characterName
-
         bossPartyMemberRepository.delete(target)
 
         notificationService.sendBossPartyKickAlarm(
             partyId = partyId,
-            kickedCharacterId = characterId,
-            kickedCharacterName = kickedName,
+            kickedCharacter = target.character,
             partyTitle = bossParty.title,
             boss = bossParty.boss,
             bossDifficulty = bossParty.difficulty
@@ -725,7 +720,6 @@ class BossPartyService(
             .findByBossPartyIdAndCharacterMemberEmail(partyId, userEmail)
             ?: throw AccessDeniedException("파티 멤버가 아닙니다.")
 
-        val leaverName = bpm.character.characterName
         val leaverCharacterId = bpm.character.id // 탈퇴하는 캐릭터의 ID 보관
         var newLeaderName: String? = null
 
@@ -757,7 +751,7 @@ class BossPartyService(
 
         notificationService.sendBossPartyLeaveAlarm(
             partyId = partyId,
-            leaverName = leaverName,
+            leaver = bpm.character,
             newLeaderName = newLeaderName,
             partyTitle = bossParty.title,
             boss = bossParty.boss,
@@ -803,8 +797,7 @@ class BossPartyService(
 
         notificationService.sendBossPartyTransferAlarm(
             partyId = bossParty.id,
-            newLeaderId = targetMember.character.id,
-            newLeaderName = targetMember.character.characterName,
+            newLeader = targetMember.character,
             partyTitle = bossParty.title,
             boss = bossParty.boss,
             bossDifficulty = bossParty.difficulty
