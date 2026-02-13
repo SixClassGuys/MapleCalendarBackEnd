@@ -26,6 +26,7 @@ import com.sixclassguys.maplecalendar.domain.boss.repository.MemberBossPartyMapp
 import com.sixclassguys.maplecalendar.domain.character.repository.MapleCharacterRepository
 import com.sixclassguys.maplecalendar.domain.member.repository.MemberRepository
 import com.sixclassguys.maplecalendar.domain.boss.enums.BossPartyChatMessageType
+import com.sixclassguys.maplecalendar.domain.boss.enums.JoinStatus.*
 import com.sixclassguys.maplecalendar.domain.boss.enums.RegistrationMode
 import com.sixclassguys.maplecalendar.domain.notification.service.NotificationService
 import com.sixclassguys.maplecalendar.global.dto.AlarmType
@@ -596,16 +597,30 @@ class BossPartyService(
             ?: throw AccessDeniedException("초대 권한이 없습니다.")
 
         val exists = bossPartyMemberRepository.findByBossPartyIdAndCharacterId(partyId, inviteeId)
-        if (exists != null) throw IllegalStateException("이미 초대되었거나 참여 중입니다")
+        if (exists != null) {
+            when (exists.joinStatus) {
+                ACCEPTED -> throw IllegalStateException("이미 참여 중인 캐릭터입니다.")
+                INVITED -> throw IllegalStateException("이미 초대 대기 중입니다.")
+                DELETED -> {
+                    // 기존 DELETED 기록이 있다면 INVITED로 다시 변경 (재초대)
+                    exists.joinStatus = INVITED
+                    // 필요하다면 초대 시간을 현재 시간으로 갱신
+                    // existingMember.joinedAt = LocalDateTime.now()
+                }
 
-        bossPartyMemberRepository.save(
-            BossPartyMember(
-                bossParty = bossParty,
-                character = character,
-                role = PartyRole.MEMBER,
-                joinStatus = JoinStatus.INVITED
+                null -> {}
+            }
+        } else {
+            // 🚀 아예 기록이 없다면 새로 생성
+            bossPartyMemberRepository.save(
+                BossPartyMember(
+                    bossParty = bossParty,
+                    character = character,
+                    role = PartyRole.MEMBER,
+                    joinStatus = JoinStatus.INVITED
+                )
             )
-        )
+        }
 
         TransactionSynchronizationManager.registerSynchronization(object : TransactionSynchronization {
 
