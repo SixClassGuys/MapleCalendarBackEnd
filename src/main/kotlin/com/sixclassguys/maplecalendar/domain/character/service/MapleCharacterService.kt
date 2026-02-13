@@ -73,23 +73,31 @@ class MapleCharacterService(
         val member = memberRepository.findByEmail(email)
             ?: throw EntityNotFoundException("유저를 찾을 수 없습니다.")
 
+        // 1. 우선 넥슨 API로 키 유효성 검증
         val nexonAccounts = nexonApiClient.getCharacters(apiKey)
         if (nexonAccounts.isEmpty()) throw InvalidApiKeyException()
 
-        // 2. 🚀 유효한 키라면 DB 저장 (중복 체크 포함)
+        // 2. 🚀 키 중복 체크 및 저장
         val apiKeyHash = encryptionUtil.hashKey(apiKey)
 
-        // 이 멤버가 이미 이 키를 등록했는지 확인 (또는 전체 유니크 체크)
-        val isKeyExists = nexonApiKeyRepository.existsByApiKeyHash(apiKeyHash)
+        // DB 전체에서 해당 키가 이미 존재하는지 확인
+        val existingKey = nexonApiKeyRepository.findByApiKeyHash(apiKeyHash)
 
-        if (!isKeyExists) {
+        if (existingKey == null) {
+            // 아예 새로운 키라면 저장
             nexonApiKeyRepository.save(
                 NexonApiKey(
                     member = member,
-                    nexonApiKey = apiKey, // Converter에 의해 자동 암호화됨
+                    nexonApiKey = apiKey,
                     apiKeyHash = apiKeyHash
                 )
             )
+        } else if (existingKey.member.id != member.id) {
+            // [보안] 다른 사람이 이미 등록한 키인 경우 처리 (정책에 따라 결정)
+            throw IllegalStateException("이미 다른 사용자에 의해 등록된 API Key입니다.")
+        } else {
+            // 이미 본인이 등록한 키라면 무시 (정상)
+            log.info("이미 등록된 API Key입니다. (Member: ${member.email})")
         }
 
         val groupedByWorld = nexonAccounts.flatMap { it.characters }
