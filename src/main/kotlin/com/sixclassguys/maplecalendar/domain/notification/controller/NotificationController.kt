@@ -28,9 +28,9 @@ class NotificationController(
     @DeleteMapping("/tokens")
     fun unregisterToken(
         @AuthenticationPrincipal userDetails: UserDetails,
-        @RequestBody request: TokenRequest,
+        @RequestBody request: FcmTokenRequest,
     ): ResponseEntity<Unit> {
-        notificationService.unregisterToken(userDetails.username, request.refreshToken)
+        notificationService.unregisterToken(userDetails.username, request.token)
 
         return ResponseEntity.ok().build()
     }
