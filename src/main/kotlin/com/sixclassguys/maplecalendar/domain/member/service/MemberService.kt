@@ -2,6 +2,7 @@ package com.sixclassguys.maplecalendar.domain.member.service
 
 import com.sixclassguys.maplecalendar.domain.auth.dto.LoginResponse
 import com.sixclassguys.maplecalendar.domain.character.repository.MapleCharacterRepository
+import com.sixclassguys.maplecalendar.domain.character.service.MapleCharacterService
 import com.sixclassguys.maplecalendar.domain.member.entity.Member
 import com.sixclassguys.maplecalendar.domain.member.repository.MemberRepository
 import com.sixclassguys.maplecalendar.domain.notification.dto.Platform
@@ -15,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional
 @Service
 class MemberService(
     private val notificationService: NotificationService,
+    private val mapleCharacterService: MapleCharacterService,
     private val memberRepository: MemberRepository,
     private val mapleCharacterRepository: MapleCharacterRepository
 ) {
@@ -45,6 +47,8 @@ class MemberService(
         val characterEntity = representativeOcid?.let {
             mapleCharacterRepository.findByOcid(it)
         }
+
+        mapleCharacterService.refreshUserCharacters(member.id)
 
         // 5. (선택사항) 실시간 데이터 갱신이 필요하다면 여기서 넥슨 API를 추가 호출
         // 일단은 LoginResponse.fromEntity를 사용하여 DB에 저장된 정보를 반환

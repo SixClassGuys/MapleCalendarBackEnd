@@ -280,9 +280,6 @@ class MapleCharacterService(
                                 // CASE 2: 정보 업데이트
                                 updateCharacterInfo(match, characterDto)
                             }
-                        } else {
-                            // CASE 3: DB에 없는 신규 캐릭터 발견 시 추가
-                            saveNewCharacter(member, characterDto)
                         }
                     }
                 }

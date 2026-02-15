@@ -210,7 +210,7 @@ class AuthService(
             notificationService.registerToken(
                 // 플랫폼은 안드로이드로 고정하거나 파라미터로 받기
                 request = FcmTokenRequest(token = fcmToken, platform = platform),
-                memberId = user.id!!
+                memberId = user.id
             )
         } catch (e: Exception) {
             log.error("FCM 토큰 업데이트 실패: ${e.message}")

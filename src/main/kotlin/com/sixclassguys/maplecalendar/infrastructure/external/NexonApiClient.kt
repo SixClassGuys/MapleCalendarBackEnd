@@ -58,7 +58,7 @@ class NexonApiClient(
     fun getCharacters(apiKey: String): List<Account> {
         val url = "${nexonProperties.baseUrl}/character/list"
 
-        log.info("API Key: $apiKey")
+        log.info("캐릭터 리스트 가져오기 API Key: $apiKey")
 
         // 헤더에 API Key 설정
         val headers = HttpHeaders().apply {
@@ -71,6 +71,7 @@ class NexonApiClient(
             HttpMethod.GET,
             entity
         )
+        log.info("캐릭터 리스트 가져오기: ${response.body?.accounts ?: emptyList()}")
 
         return response.body?.accounts ?: emptyList()
     }
