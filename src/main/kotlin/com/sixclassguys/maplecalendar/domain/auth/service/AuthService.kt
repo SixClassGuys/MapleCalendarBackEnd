@@ -7,6 +7,7 @@ import com.sixclassguys.maplecalendar.domain.auth.dto.AuthResult
 import com.sixclassguys.maplecalendar.domain.auth.dto.TokenRequest
 import com.sixclassguys.maplecalendar.domain.auth.dto.LoginResponse
 import com.sixclassguys.maplecalendar.domain.auth.dto.TokenResponse
+import com.sixclassguys.maplecalendar.domain.auth.jwt.AppleJwtVerifier
 import com.sixclassguys.maplecalendar.domain.auth.jwt.JwtUtil
 import com.sixclassguys.maplecalendar.domain.character.service.MapleCharacterService
 import com.sixclassguys.maplecalendar.domain.member.entity.Member
@@ -32,7 +33,8 @@ class AuthService(
     private val mapleCharacterService: MapleCharacterService,
     private val jwtUtil: JwtUtil,
     private val notificationService: NotificationService,
-    private val googleOAuthProperties: GoogleOAuthProperties
+    private val googleOAuthProperties: GoogleOAuthProperties,
+    private val appleJwtVerifier: AppleJwtVerifier
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -267,9 +269,101 @@ class AuthService(
     }
 
     @Transactional
-    fun loginWithApple(appleSub: String, email: String): AuthResult {
-        // Apple 로그인은 ID 토큰 검증은 필요하지만 여기선 sub와 이메일만 사용
-        return loginOrRegister(provider = "apple", providerId = appleSub, email = email, null, null)
+    fun loginWithApple(
+        idToken: String,
+        fcmToken: String,
+        platform: Platform
+    ): LoginResponse {
+
+        // Apple JWT 검증
+        val appleUserInfo = appleJwtVerifier.verify(idToken)
+            ?: throw IllegalArgumentException("Invalid Apple Token")
+
+        val appleUid = appleUserInfo.sub
+        val email = appleUserInfo.email
+        val name = appleUserInfo.name  // Apple은 보통 null
+        val pictureUrl: String? = null // Apple은 기본 제공 안함
+
+        log.info("Apple 로그인 - 이메일: $email, UID: $appleUid")
+
+        // 유저 조회 or 가입
+        val authResult = loginOrRegister(
+            provider = "apple",
+            providerId = appleUid,
+            email = email ?: "appleuser_$appleUid@apple.com",
+            nickname = name ?: "AppleUser",
+            profileImageUrl = pictureUrl
+        )
+
+        val user = authResult.member
+
+        // 캐릭터 갱신 (Google과 동일)
+        mapleCharacterService.refreshUserCharacters(user.id)
+
+        // FCM 토큰 업데이트
+        try {
+            notificationService.registerToken(
+                request = FcmTokenRequest(token = fcmToken, platform = platform),
+                memberId = user.id!!
+            )
+        } catch (e: Exception) {
+            log.error("FCM 토큰 업데이트 실패: ${e.message}")
+        }
+
+        // JWT 발급
+        val accessToken = jwtUtil.createAccessToken(user.email)
+        val refreshToken = jwtUtil.createRefreshToken(user.email)
+
+        // 대표 캐릭터 없으면 기본 응답 반환
+        val ocid = user.representativeOcid ?: return LoginResponse.fromEntity(
+            user,
+            null,
+            accessToken,
+            refreshToken,
+            authResult.isNewMember
+        )
+
+        return try {
+            val characterBasic = nexonApiClient.getCharacterBasic(ocid)
+
+            val overAllRanking = nexonApiClient.getOverAllRanking(ocid, getZonedDateTime())
+            val worldName = overAllRanking?.ranking?.getOrNull(0)?.worldName
+
+            val serverRanking = worldName?.let {
+                nexonApiClient.getServerRanking(ocid, getZonedDateTime(), it)
+            }
+
+            val union = nexonApiClient.getUnionInfo(ocid)
+            val dojang = nexonApiClient.getDojangInfo(ocid)
+
+            LoginResponse(
+                id = user.id!!,
+                email = user.email,
+                provider = user.provider,
+                nickname = user.nickname,
+                profileImageUrl = user.profileImageUrl,
+                isGlobalAlarmEnabled = user.isGlobalAlarmEnabled,
+                accessToken = accessToken,
+                refreshToken = refreshToken,
+                isNewMember = authResult.isNewMember,
+                characterBasic = characterBasic,
+                characterPopularity = overAllRanking?.ranking?.getOrNull(0)?.characterPopularity,
+                characterOverallRanking = overAllRanking?.ranking?.getOrNull(0),
+                characterServerRanking = serverRanking?.ranking?.getOrNull(0),
+                characterUnionLevel = union,
+                characterDojang = dojang,
+                lastLoginAt = user.lastLoginAt
+            )
+        } catch (e: Exception) {
+            log.warn("캐릭터 정보 로딩 실패: ${e.message}")
+            LoginResponse.fromEntity(
+                user,
+                null,
+                accessToken,
+                refreshToken,
+                authResult.isNewMember
+            )
+        }
     }
 
     private fun loginOrRegister(
