@@ -48,7 +48,7 @@ class AppleJwtVerifier(
             sub = claims.subject,
             email = claims["email"] as? String,
             name = claims["name"] as? String
-        )v
+        )
     } catch (e: Exception) {
         log.info("Apple JWT 검증 실패: ${e.message}")
         null
