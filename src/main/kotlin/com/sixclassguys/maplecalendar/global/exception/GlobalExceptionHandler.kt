@@ -58,4 +58,19 @@ class GlobalExceptionHandler {
     fun handleBossPartyChatMessageNotFound(e: BossPartyChatMessageNotFoundException): ResponseEntity<ErrorResponse> {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ErrorResponse(404, e.message))
     }
+
+    @ExceptionHandler(MapleBgmNotFoundException::class)
+    fun handleMapleBgmNotFoundException(e: MapleBgmNotFoundException): ResponseEntity<ErrorResponse> {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ErrorResponse(404, e.message))
+    }
+
+    @ExceptionHandler(MapleBgmPlaylistNotFoundException::class)
+    fun handleMapleBgmPlaylistNotFoundException(e: MapleBgmPlaylistNotFoundException): ResponseEntity<ErrorResponse> {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ErrorResponse(404, e.message))
+    }
+
+    @ExceptionHandler(DuplicateMapleBgmException::class)
+    fun handleDuplicateMapleBgmException(e: DuplicateMapleBgmException): ResponseEntity<ErrorResponse> {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ErrorResponse(404, e.message))
+    }
 }
