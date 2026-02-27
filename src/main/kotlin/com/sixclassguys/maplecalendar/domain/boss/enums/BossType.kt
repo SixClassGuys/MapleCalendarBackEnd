@@ -10,6 +10,7 @@ enum class BossType(
     RADIANTMALEFIC("찬란한 흉성"),     // 찬란한 흉성
     LIMBO("림보"),              // 림보
     BALDRIX("발드릭스"),            // 발드릭스
+    JUPITER("유피테르"),            // 유피테르
     LUCID("루시드"),              // 루시드
     WILL("윌"),               // 윌
     DUSK("더스크"),               // 더스크
