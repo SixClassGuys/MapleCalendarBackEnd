@@ -776,6 +776,21 @@ class BossPartyService(
         if (acceptedMembers.size == 1) {
             bossParty.isDeleted = true
             bpm.joinStatus = JoinStatus.DELETED
+
+            TransactionSynchronizationManager.registerSynchronization(object : TransactionSynchronization {
+
+                override fun afterCommit() {
+                    notificationService.sendBossPartyLeaveAlarm(
+                        partyId = partyId,
+                        leaver = bpm.character,
+                        newLeaderName = newLeaderName,
+                        partyTitle = bossParty.title,
+                        boss = bossParty.boss,
+                        bossDifficulty = bossParty.difficulty
+                    )
+                }
+            })
+
             return getBossParties(userEmail)
         }
 
