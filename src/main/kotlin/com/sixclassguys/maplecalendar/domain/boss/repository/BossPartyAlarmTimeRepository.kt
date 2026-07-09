@@ -53,4 +53,23 @@ interface BossPartyAlarmTimeRepository : JpaRepository<BossPartyAlarmTime, Long>
     ): List<BossPartyAlarmTime>
 
     fun existsByBossPartyIdAndAlarmTime(bossPartyId: Long, alarmTime: LocalDateTime): Boolean
+
+    @Modifying
+    @Transactional
+    @Query("""
+        DELETE FROM BossPartyAlarmTime a 
+        WHERE a.bossPartyId = :bossPartyId 
+          AND a.registrationMode = :registrationMode 
+          AND a.isSent = false 
+          AND a.alarmTime > :now
+    """)
+    fun deleteFutureSelectAlarms(
+        @Param("bossPartyId") bossPartyId: Long,
+        @Param("registrationMode") registrationMode: RegistrationMode = RegistrationMode.SELECT,
+        @Param("now") now: LocalDateTime = LocalDateTime.now()
+    )
+
+    fun deleteByIdIn(ids: List<Long>)
+
+    fun existsByBossPartyIdAndIsSentFalse(bossPartyId: Long): Boolean
 }
