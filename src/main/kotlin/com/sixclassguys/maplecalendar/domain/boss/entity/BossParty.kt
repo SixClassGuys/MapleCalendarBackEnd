@@ -70,4 +70,12 @@ class BossParty(
     // 편의를 위해 현재 참여 인원수도 쉽게 가져오게 함
     val currentMemberCount: Int
         get() = acceptedMembers.size
+
+    fun clearFixedAlarm() {
+        this.alarmDayOfWeek = null
+        this.alarmHour = null
+        this.alarmMinute = null
+        this.alarmMessage = null
+        this.updatedAt = LocalDateTime.now()
+    }
 }
