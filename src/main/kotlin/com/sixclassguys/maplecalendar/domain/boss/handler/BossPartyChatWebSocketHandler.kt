@@ -2,7 +2,11 @@ package com.sixclassguys.maplecalendar.domain.boss.handler
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.sixclassguys.maplecalendar.domain.boss.dto.BossPartyChatMessageResponse
+import com.sixclassguys.maplecalendar.domain.boss.dto.BossPartyCommonScheduleResponse
+import com.sixclassguys.maplecalendar.domain.boss.dto.BossPartyScheduleCancellationWebsocketResponse
+import com.sixclassguys.maplecalendar.domain.boss.dto.BossPartyScheduleWebsocketResponse
 import com.sixclassguys.maplecalendar.domain.boss.dto.BossPartySystemEvent
+import com.sixclassguys.maplecalendar.domain.boss.dto.BossScheduleUpdateEvent
 import com.sixclassguys.maplecalendar.domain.boss.dto.toResponse
 import com.sixclassguys.maplecalendar.domain.boss.entity.BossPartyChatMessage
 import com.sixclassguys.maplecalendar.domain.boss.service.BossPartyService
@@ -13,6 +17,8 @@ import com.sixclassguys.maplecalendar.global.exception.BossPartyNotFoundExceptio
 import com.sixclassguys.maplecalendar.global.exception.MapleCharacterNotFoundException
 import org.springframework.context.event.EventListener
 import org.springframework.stereotype.Component
+import org.springframework.transaction.event.TransactionPhase
+import org.springframework.transaction.event.TransactionalEventListener
 import org.springframework.web.socket.CloseStatus
 import org.springframework.web.socket.TextMessage
 import org.springframework.web.socket.WebSocketSession
@@ -28,9 +34,6 @@ class BossPartyChatWebSocketHandler(
     private val mapleCharacterRepository: MapleCharacterRepository,
     private val objectMapper: ObjectMapper // JSON 파싱용
 ) : TextWebSocketHandler() {
-
-    // key: partyId, value: 해당 파티에 접속 중인 세션 리스트
-    private val roomSessions = ConcurrentHashMap<Long, MutableList<WebSocketSession>>()
 
     // 1. 연결 성립 시
     override fun afterConnectionEstablished(session: WebSocketSession) {
@@ -175,13 +178,85 @@ class BossPartyChatWebSocketHandler(
         }
     }
 
+    fun broadcastScheduleUpdate(partyId: Long, candidates: List<BossPartyCommonScheduleResponse>) {
+        val sessions = roomSessions[partyId]
+        if (sessions.isNullOrEmpty()) {
+            println("⚠️ [웹소켓] 실제 관리 중인 세션 맵에도 세션이 존재하지 않습니다. 방번호: $partyId")
+            return
+        }
+
+        val response = BossPartyScheduleWebsocketResponse(candidates = candidates)
+        val jsonResponse = objectMapper.writeValueAsString(response)
+
+        println("🚀 [웹소켓 스케줄 업데이트] 진짜 인스턴스에서 세션 ${sessions.size}개 감지 성공! 발송 시작.")
+        sessions.forEach { session ->
+            synchronized(session) {
+                if (session.isOpen) {
+                    try { session.sendMessage(TextMessage(jsonResponse)) } catch (e: Exception) {}
+                }
+            }
+        }
+    }
+
+    fun broadcastAlarmCanceled(
+        partyId: Long,
+        triggerMemberName: String,
+        dayOfWeek: String?,
+        timeRange: String?
+    ) {
+        // 1. 진짜 관리 중인 세션 맵에서 해당 방의 세션 리스트 획득
+        val sessions = roomSessions[partyId]
+        if (sessions.isNullOrEmpty()) {
+            println("⚠️ [웹소켓] 알람 취소 브로드캐스트 대상 세션이 없습니다. 방번호: $partyId")
+            return
+        }
+
+        // 2. KMP가 파싱할 공통 래퍼 응답 객체 생성
+        val response = BossPartyScheduleCancellationWebsocketResponse(
+            triggerMemberName = triggerMemberName,
+            canceledDayOfWeek = dayOfWeek,
+            canceledTimeRange = timeRange
+        )
+        val jsonResponse = objectMapper.writeValueAsString(response)
+
+        // 3. 연결이 열려있는 모든 파티원 세션에 동시 발송
+        println("🚀 [웹소켓 스케줄 취소] 알람 취소 이벤트를 ${sessions.size}개의 세션에 전송합니다.")
+        sessions.forEach { session ->
+            synchronized(session) {
+                if (session.isOpen) {
+                    try {
+                        session.sendMessage(TextMessage(jsonResponse))
+                    } catch (e: Exception) {
+                        println("❌ 알람 취소 웹소켓 전송 에러: ${e.message}")
+                    }
+                }
+            }
+        }
+    }
+
     @EventListener
     fun handleBossPartySystemEvent(event: BossPartySystemEvent) {
         val message = event.message.toResponse(event.characterId)
         broadcast(event.partyId, message)
     }
 
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    fun handleBossScheduleUpdate(event: BossScheduleUpdateEvent) {
+        broadcastScheduleUpdate(event.partyId, event.candidates)
+        if (event.isAlarmCanceled && event.triggerMemberName != null) {
+            broadcastAlarmCanceled(
+                partyId = event.partyId,
+                triggerMemberName = event.triggerMemberName,
+                dayOfWeek = event.canceledDayOfWeek,
+                timeRange = event.canceledTimeRange
+            )
+        }
+    }
+
     companion object {
+
+        // key: partyId, value: 해당 파티에 접속 중인 세션 리스트
+        private val roomSessions = ConcurrentHashMap<Long, MutableList<WebSocketSession>>()
 
         // 현재 어느 파티에 어떤 캐릭터가 접속 중인지 추적하기 위한 Map
         // Key: partyId, Value: Set<characterId>

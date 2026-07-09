@@ -4,12 +4,16 @@ import com.sixclassguys.maplecalendar.domain.boss.dto.BossPartyAlarmPeriodReques
 import com.sixclassguys.maplecalendar.domain.boss.dto.BossPartyAlarmTimeRequest
 import com.sixclassguys.maplecalendar.domain.boss.dto.BossPartyAlarmTimeResponse
 import com.sixclassguys.maplecalendar.domain.boss.dto.BossPartyChatMessageResponse
+import com.sixclassguys.maplecalendar.domain.boss.dto.BossPartyCommonScheduleResponse
 import com.sixclassguys.maplecalendar.domain.boss.dto.BossPartyCreateRequest
 import com.sixclassguys.maplecalendar.domain.boss.dto.BossPartyCreateResponse
 import com.sixclassguys.maplecalendar.domain.boss.dto.BossPartyDetailResponse
 import com.sixclassguys.maplecalendar.domain.boss.dto.BossPartyMemberResponse
 import com.sixclassguys.maplecalendar.domain.boss.dto.BossPartyResponse
 import com.sixclassguys.maplecalendar.domain.boss.dto.BossPartyScheduleResponse
+import com.sixclassguys.maplecalendar.domain.boss.dto.BossPartyTimeConfirmRequest
+import com.sixclassguys.maplecalendar.domain.boss.dto.BossPartyUpdateScheduleRequest
+import com.sixclassguys.maplecalendar.domain.boss.dto.BossPartyUpdateScheduleResponse
 import com.sixclassguys.maplecalendar.domain.boss.handler.BossPartyChatWebSocketHandler
 import com.sixclassguys.maplecalendar.domain.boss.service.BossPartyService
 import io.swagger.v3.oas.annotations.Operation
@@ -27,6 +31,7 @@ import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
@@ -152,6 +157,43 @@ class BossPartyController(
         val response = bossPartyService.getBossPartyAlarmTimes(bossPartyId)
 
         return ResponseEntity.ok(response)
+    }
+
+    @PutMapping("/{bossPartyId}/schedule")
+    fun updateSchedule(
+        @AuthenticationPrincipal userDetails: UserDetails,
+        @PathVariable bossPartyId: Long,
+        @RequestBody request: BossPartyUpdateScheduleRequest
+    ): ResponseEntity<BossPartyUpdateScheduleResponse> {
+        val response = bossPartyService.updateMemberSchedule(bossPartyId, userDetails.username, request)
+
+        return ResponseEntity.ok(response)
+    }
+
+    @GetMapping("/{bossPartyId}/schedule/candidates")
+    fun getScheduleCandidates(
+        @AuthenticationPrincipal userDetails: UserDetails,
+        @PathVariable bossPartyId: Long
+    ): ResponseEntity<List<BossPartyCommonScheduleResponse>> {
+        val candidates = bossPartyService.getCommonPartyScheduleList(bossPartyId)
+
+        return ResponseEntity.ok(candidates)
+    }
+
+    @PostMapping("/{bossPartyId}/schedule/confirm")
+    fun confirmBossTime(
+        @AuthenticationPrincipal userDetails: UserDetails,
+        @PathVariable bossPartyId: Long,
+        @RequestBody request: BossPartyTimeConfirmRequest
+    ): ResponseEntity<Unit> {
+        bossPartyService.confirmBossTimeAndScheduleAlarm(
+            partyId = bossPartyId,
+            userEmail = userDetails.username,
+            selectedIndex = request.selectedIndex, // 카드가 들고 있던 인덱스 (예: 0 또는 72)
+            message = request.message
+        )
+
+        return ResponseEntity.ok().build()
     }
 
     @Operation(

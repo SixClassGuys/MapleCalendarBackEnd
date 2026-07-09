@@ -33,6 +33,7 @@ import org.springframework.data.redis.core.RedisTemplate
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
@@ -154,6 +155,81 @@ class NotificationService(
                 response.responses.forEachIndexed { index, sendResponse ->
                     if (!sendResponse.isSuccessful) {
                         // 실패한 토큰과 사유 로그 (필요 시)
+                        log.error("실패 토큰 인덱스[$index]: ${sendResponse.exception.message}")
+                    }
+                }
+            }
+        }
+    }
+
+    @Transactional(readOnly = true)
+    fun sendBossPartyScheduleCanceledAlarm(
+        partyId: Long,
+        partyTitle: String,
+        boss: BossType,
+        bossDifficulty: BossDifficulty,
+        canceledDayOfWeek: DayOfWeek,
+        canceledHour: Int,
+        canceledMinute: Int,
+        triggerMemberName: String,
+        leaderEmail: String
+    ) {
+        // 1. 해당 파티의 승인된 모든 멤버 조회 (토큰 페칭)
+        val members = bossPartyMemberRepository.findAllWithMemberAndTokensByPartyId(partyId, JoinStatus.ACCEPTED)
+        val messages = mutableListOf<Message>()
+
+        val dayOfWeekKorean = when(canceledDayOfWeek) {
+            DayOfWeek.MONDAY -> "월요일"
+            DayOfWeek.TUESDAY -> "화요일"
+            DayOfWeek.WEDNESDAY -> "수요일"
+            DayOfWeek.THURSDAY -> "목요일"
+            DayOfWeek.FRIDAY -> "금요일"
+            DayOfWeek.SATURDAY -> "토요일"
+            DayOfWeek.SUNDAY -> "일요일"
+        }
+        // 💡 알림창에 보일 취소 시간 포맷 예쁘게 다듬기 (예: 일요일 00:00)
+        val timeFormatted = String.format("%s %02d시 %02d분", dayOfWeekKorean, canceledHour, canceledMinute)
+
+        // 2. 파티장 포함 '모든' 파티원 순회하며 알림 생성
+        members.forEach { partyMember ->
+            val member = partyMember.character.member
+            val memberEmail = member.email
+
+            val isLeader = (memberEmail == leaderEmail)
+            val body = if (isLeader) {
+                "[${boss.bossName}(${bossDifficulty.name})] $partyTitle 파티의 ${triggerMemberName}님이 ${timeFormatted}에 불가능하여 알람 예약이 취소되었습니다. 다른 시간대를 확정해주세요."
+            } else {
+                "[${boss.bossName}(${bossDifficulty.name})] $partyTitle 파티의 ${triggerMemberName}님이 ${timeFormatted}에 불가능하여 알람 예약이 취소되었습니다."
+            }
+
+            member.tokens.forEach { tokenEntity ->
+                // 💡 일관성을 위해 초대 알림 함수처럼 알림 페이로드 구성
+                val message = Message.builder()
+                    .setToken(tokenEntity.token)
+                    .setNotification(
+                        Notification.builder()
+                            .setTitle("보스 스케줄 취소")
+                            .setBody(body)
+                            .build()
+                    )
+                    .putData("type", "SCHEDULE_CANCEL")
+                    .putData("contentId", partyId.toString())
+                    .setAndroidConfig(AndroidConfig.builder()
+                        .setPriority(AndroidConfig.Priority.HIGH)
+                        .build())
+                    .build()
+
+                messages.add(message)
+            }
+        }
+
+        // 2. 대량 전송(Batch Send) 인프라 구동
+        if (messages.isNotEmpty()) {
+            val response = FirebaseMessaging.getInstance().sendEach(messages)
+            if (response.failureCount > 0) {
+                log.warn("스케줄 취소 알림 중 일부 전송 실패 (총 ${messages.size}건 중 ${response.failureCount}건 실패)")
+                response.responses.forEachIndexed { index, sendResponse ->
+                    if (!sendResponse.isSuccessful) {
                         log.error("실패 토큰 인덱스[$index]: ${sendResponse.exception.message}")
                     }
                 }
@@ -670,6 +746,14 @@ class NotificationService(
             randomMessages.random()
         }
 
+        // 3. [목요일 특수 조건] 시간대 미확정 파티장 목록 추출
+        // 오늘이 목요일(THURSDAY)인 경우에만 DB를 조회하여 대상을 선별합니다. (다른 요일엔 빈 리스트로 패스)
+        val targetLeaderMemberIds = if (LocalDate.now().dayOfWeek == DayOfWeek.THURSDAY) {
+            bossPartyMemberRepository.findLeaderMemberIdsWithNoReservedAlarm()
+        } else {
+            emptyList()
+        }
+
         // 3. 모든 토큰 조회
         val tokens = notificationTokenRepository.findAllByMemberIsGlobalAlarmEnabledTrue()
 
@@ -677,12 +761,21 @@ class NotificationService(
 
         // 4. 발송 로직
         tokens.forEach { tokenEntity ->
+            val currentMemberId = tokenEntity.member?.id // 토큰 소유자의 Member ID
+
+            // [조건부 문구 치환] 오늘이 목요일이고, 이 유저가 미확정 파티의 파티장 목록에 있다면?
+            val finalBody = if (targetLeaderMemberIds.contains(currentMemberId)) {
+                "시간대를 확정해야 하는 보스 파티가 존재합니다. 이번 주 일정을 정해주세요!"
+            } else {
+                body // 일반 유저나 시간표를 이미 짠 파티장은 기존 이벤트 알림 수신
+            }
+
             val message = Message.builder()
                 .setToken(tokenEntity.token)
                 .setNotification(
                     Notification.builder()
                         .setTitle(title)
-                        .setBody(body)
+                        .setBody(finalBody)
                         .build()
                 )
                 .setAndroidConfig(

@@ -16,6 +16,7 @@ data class BossPartyResponse(
     val leaderNickname: String,
     val memberCount: Int,
     val joinStatus: JoinStatus,
+    val isScheduleRequired: Boolean,
     val createdAt: LocalDateTime?,
     val updatedAt: LocalDateTime?
 )

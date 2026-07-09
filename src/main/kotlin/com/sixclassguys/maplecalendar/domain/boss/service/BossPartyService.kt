@@ -7,10 +7,14 @@ import com.sixclassguys.maplecalendar.domain.boss.dto.BossPartyMemberResponse
 import com.sixclassguys.maplecalendar.domain.boss.dto.BossPartyResponse
 import com.sixclassguys.maplecalendar.domain.boss.repository.BossPartyAlarmTimeRepository
 import com.sixclassguys.maplecalendar.domain.boss.dto.BossPartyChatMessageResponse
+import com.sixclassguys.maplecalendar.domain.boss.dto.BossPartyCommonScheduleResponse
 import com.sixclassguys.maplecalendar.domain.boss.dto.BossPartyDetailResponse
 import com.sixclassguys.maplecalendar.domain.boss.dto.BossPartyMemberDetail
 import com.sixclassguys.maplecalendar.domain.boss.dto.BossPartyScheduleResponse
 import com.sixclassguys.maplecalendar.domain.boss.dto.BossPartySystemEvent
+import com.sixclassguys.maplecalendar.domain.boss.dto.BossPartyUpdateScheduleRequest
+import com.sixclassguys.maplecalendar.domain.boss.dto.BossPartyUpdateScheduleResponse
+import com.sixclassguys.maplecalendar.domain.boss.dto.BossScheduleUpdateEvent
 import com.sixclassguys.maplecalendar.domain.boss.dto.toResponse
 import com.sixclassguys.maplecalendar.domain.boss.entity.BossParty
 import com.sixclassguys.maplecalendar.domain.boss.entity.BossPartyAlarmTime
@@ -143,6 +147,9 @@ class BossPartyService(
             // 승인된 멤버 수 계산
             val totalCount = p.members.count { it.joinStatus == ACCEPTED }
 
+            // [핵심] 해당 파티에 아직 전송되지 않은(isSent=false) 예약 알람 데이터가 '존재하지 않는가?'
+            val hasNoActiveAlarm = !bossPartyAlarmTimeRepository.existsByBossPartyIdAndIsSentFalse(p.id)
+
             BossPartyResponse(
                 id = p.id,
                 title = p.title,
@@ -154,6 +161,7 @@ class BossPartyService(
                 leaderNickname = leader,
                 memberCount = totalCount,
                 joinStatus = bm.joinStatus ?: INVITED,
+                isScheduleRequired = hasNoActiveAlarm,
                 createdAt = p.createdAt,
                 updatedAt = p.updatedAt
             )
@@ -172,7 +180,7 @@ class BossPartyService(
         val now = LocalDateTime.now()
 
         // 1. 파티원 리스트 변환 (기존 로직 동일)
-        val memberDetails = party.members.filter{ it.joinStatus == ACCEPTED }.map { m ->
+        val memberDetails = party.members.filter { it.joinStatus == ACCEPTED }.map { m ->
             BossPartyMemberDetail(
                 characterId = m.character.id,
                 characterName = m.character.characterName,
@@ -186,6 +194,8 @@ class BossPartyService(
             )
         }.sortedByDescending { it.role == PartyRole.LEADER }
 
+        val myPartyMemberEntity =
+            party.members.find { it.character.member.id == member.id && it.joinStatus == ACCEPTED }
         val isLeader = party.members.any { m ->
             m.role == PartyRole.LEADER && m.character.member.id == member.id
         }
@@ -217,6 +227,8 @@ class BossPartyService(
             isLeader = isLeader,
             isPartyAlarmEnabled = if (!isGlobalEnabled) false else mapping?.isPartyAlarmEnabled ?: false,
             isChatAlarmEnabled = if (!isGlobalEnabled) false else mapping?.isChatAlarmEnabled ?: false,
+            myAvailableSlots = myPartyMemberEntity?.availableSlots ?: "0".repeat(504),
+            myKeepNextWeek = myPartyMemberEntity?.keepNextWeek ?: false,
             alarmDayOfWeek = party.alarmDayOfWeek,
             alarmHour = party.alarmHour,
             alarmMinute = party.alarmMinute,
@@ -306,6 +318,273 @@ class BossPartyService(
         return mapping.isChatAlarmEnabled
     }
 
+    @Transactional
+    fun updateMemberSchedule(
+        bossPartyId: Long,
+        userEmail: String,
+        request: BossPartyUpdateScheduleRequest
+    ): BossPartyUpdateScheduleResponse {
+        val bossParty = bossPartyRepository.findByIdAndIsDeletedFalse(bossPartyId)
+            ?: throw BossPartyNotFoundException()
+
+        val bpm = bossPartyMemberRepository
+            .findByBossPartyIdAndCharacterMemberEmail(bossPartyId, userEmail)
+            ?: throw BossPartyMemberNotFoundException()
+
+        // 엔티티 내부 검증 및 업데이트 메서드 호출
+        bpm.updateSchedule(request.availableSlots, request.keepNextWeek)
+
+        bossPartyMemberRepository.flush() // 파티원의 가능 시간대 업데이트 후 DB와 동기화
+        val currentCandidates = getCommonPartyScheduleList(bossPartyId)
+
+        var oldDay: String? = null
+        var oldTime: String? = null
+        val activeAlarms = bossPartyAlarmTimeRepository.findByBossPartyIdAndIsSentFalseOrderByAlarmTimeAsc(bossPartyId)
+
+        // 새 대진표(currentCandidates)에서 탈락한 알람들만 골라냅니다.
+        val invalidAlarms = activeAlarms.filter { alarm ->
+            val fixedDayOfWeek = alarm.alarmTime.dayOfWeek
+            val fixedHour = alarm.alarmTime.hour
+            val fixedMinute = alarm.alarmTime.minute
+            val formattedTime = String.format("%02d:%02d", fixedHour, fixedMinute)
+
+            // 이 알람 시간이 새 대진표에 존재하지 않으면(탈락하면) true
+            currentCandidates.none { candidate ->
+                candidate.dayOfWeek == fixedDayOfWeek.name && candidate.timeRange == formattedTime
+            }
+        }
+
+        var isCanceled = false
+        var triggerName: String? = null
+
+        // KMP(웹소켓)로 쏠 취소된 시간대 정보들을 콤마(,)나 리스트 포맷으로 묶기 위한 준비
+        var canceledSchedulesText = ""
+
+        if (invalidAlarms.isNotEmpty()) {
+            println("🚨 새 대진표에서 탈락한 알람 ${invalidAlarms.size}개 감지. 폭파 절차 돌입.")
+            isCanceled = true
+            triggerName = bpm.character.characterName
+
+            // UI 체감용 취소 시간대 안내 텍스트 조립 (예: "목요일 19:00, 토요일 21:00")
+            canceledSchedulesText = invalidAlarms.joinToString(", ") { alarm ->
+                val dayKorean = when(alarm.alarmTime.dayOfWeek) {
+                    DayOfWeek.MONDAY -> "월"
+                    DayOfWeek.TUESDAY -> "화"
+                    DayOfWeek.WEDNESDAY -> "수"
+                    DayOfWeek.THURSDAY -> "목"
+                    DayOfWeek.FRIDAY -> "금"
+                    DayOfWeek.SATURDAY -> "토"
+                    DayOfWeek.SUNDAY -> "일"
+                }
+                String.format("%s요일 %02d:%02d", dayKorean, alarm.alarmTime.hour, alarm.alarmTime.minute)
+            }
+
+            // A. 탈락한 알람들만 DB 예약 테이블에서 조용히 삭제합니다.
+            val invalidAlarmIds = invalidAlarms.map { it.id }
+            bossPartyAlarmTimeRepository.deleteByIdIn(invalidAlarmIds)
+
+            // B. 가이드라인 필드 동기화 (기존 필드가 탈락한 시간 목록에 포함되어 있다면 null 처리)
+            if (bossParty.alarmDayOfWeek != null) {
+                val isMainAlarmInvalid = invalidAlarms.any {
+                    it.alarmTime.dayOfWeek == bossParty.alarmDayOfWeek && it.alarmTime.hour == bossParty.alarmHour
+                }
+                if (isMainAlarmInvalid) {
+                    bossParty.clearFixedAlarm()
+                }
+            }
+
+            // C. 커밋 성공 후 FCM 푸시 발송 (취소된 알람들을 루프 돌며 각각 쏘거나, 묶어서 쏩니다)
+            TransactionSynchronizationManager.registerSynchronization(object : TransactionSynchronization {
+                override fun afterCommit() {
+
+                    // 💡 기존 취소 함수를 살려 invalidAlarms를 순회하며 각각 전송하거나
+                    // 텍스트를 통째로 넘겨 한 번에 알릴 수 있도록 유연하게 가시면 됩니다.
+                    invalidAlarms.forEach { alarm ->
+                        notificationService.sendBossPartyScheduleCanceledAlarm(
+                            partyId = bossPartyId,
+                            partyTitle = bossParty.title,
+                            boss = bossParty.boss,
+                            bossDifficulty = bossParty.difficulty,
+                            canceledDayOfWeek = alarm.alarmTime.dayOfWeek,
+                            canceledHour = alarm.alarmTime.hour,
+                            canceledMinute = alarm.alarmTime.minute,
+                            triggerMemberName = triggerName,
+                            leaderEmail = bossParty.members.find { it.role == PartyRole.LEADER }?.character?.member?.email ?: ""
+                        )
+                    }
+                }
+            })
+        }
+
+        eventPublisher.publishEvent(
+            BossScheduleUpdateEvent(
+                partyId = bossPartyId,
+                candidates = currentCandidates,
+                isAlarmCanceled = isCanceled,
+                triggerMemberName = triggerName,
+                canceledDayOfWeek = oldDay,
+                canceledTimeRange = oldTime
+            )
+        )
+
+        return BossPartyUpdateScheduleResponse(
+            newAvailableSlots = bpm.availableSlots,
+            newKeepNextWeek = bpm.keepNextWeek
+        )
+    }
+
+    @Transactional(readOnly = true)
+    fun getCommonPartyScheduleList(bossPartyId: Long): List<BossPartyCommonScheduleResponse> {
+        val members = bossPartyMemberRepository.findAllByBossPartyIdAndJoinStatus(bossPartyId, JoinStatus.ACCEPTED)
+        if (members.isEmpty()) return emptyList()
+
+        val responseList = mutableListOf<BossPartyCommonScheduleResponse>()
+        val koreanDays = listOf("일요일", "월요일", "화요일", "수요일", "목요일", "금요일", "토요일")
+
+        // 504개 슬롯을 돌며 전원 가능한 '1'인 인덱스만 추출 및 인간이 읽을 수 있는 포맷으로 변환
+        for (i in 0 until 504) {
+            val isAllAvailable = members.all { it.availableSlots[i] == '1' }
+
+            if (isAllAvailable) {
+                val dayIdx = i / 72
+                val hour = (i % 72) / 3
+                val minuteStart = ((i % 72) % 3) * 20
+                val minuteEnd = minuteStart + 20
+
+                // 시, 분 포맷팅 (00:00 형태로 맞추기)
+                val startHourStr = hour.toString().padStart(2, '0')
+                val startMinuteStr = minuteStart.toString().padStart(2, '0')
+                val endMinuteStr = minuteEnd.toString().padStart(2, '0')
+
+                responseList.add(
+                    BossPartyCommonScheduleResponse(
+                        selectedIndex = i,
+                        dayOfWeek = koreanDays[dayIdx],
+                        timeRange = "$startHourStr:$startMinuteStr ~ $startHourStr:$endMinuteStr"
+                    )
+                )
+            }
+        }
+        return responseList
+    }
+
+    /**
+     * [기존 createAlarmTime 대체]
+     * 파티장이 공통 시간대 중 하나(Index)를 선택하여 이번 주 보스 타임으로 최종 확정하고 알람을 예약
+     */
+    @Transactional
+    fun confirmBossTimeAndScheduleAlarm(
+        partyId: Long,
+        userEmail: String,
+        selectedIndex: Int, // 0 ~ 503 사이의 선택된 비트 인덱스
+        message: String
+    ) {
+        // 1. 파티 정보 및 파티장 권한 검증
+        val party = bossPartyRepository.findById(partyId)
+            .orElseThrow { BossPartyNotFoundException() }
+
+        val partyMember = bossPartyMemberRepository.findByBossPartyIdAndCharacterMemberEmail(partyId, userEmail)
+            ?: throw BossPartyMemberNotFoundException()
+
+        if (partyMember.role != PartyRole.LEADER) {
+            throw InvalidBossPartyLeaderException()
+        }
+
+        // 2. 중복 예약 방지: 이미 예약된 기존 알람이 있다면 제거
+        // 해당 파티에 등록된 기존 SELECT 모드의 알람들을 모두 찾음
+        bossPartyAlarmTimeRepository.deleteFutureSelectAlarms(
+            bossPartyId = partyId,
+            registrationMode = RegistrationMode.SELECT,
+            now = LocalDateTime.now()
+        )
+        // 쥐고 있던 데이터베이스 영속성 컨텍스트를 즉시 비워 교체 준비
+        bossPartyAlarmTimeRepository.flush()
+
+        // 3. 목요일 기준 주차 룰을 반영하여 타겟 시간 계산
+        val alarmDateTime = calculateLocalDateTimeFromIndex(selectedIndex)
+
+        if (alarmDateTime.isBefore(LocalDateTime.now())) {
+            throw InvalidAlarmTimeException()
+        }
+
+        // 4. 새 알람 시간 데이터 저장
+        val savedTime = bossPartyAlarmTimeRepository.save(
+            BossPartyAlarmTime(
+                bossPartyId = partyId,
+                alarmTime = alarmDateTime,
+                message = message,
+                registrationMode = RegistrationMode.SELECT
+            )
+        )
+
+        // 5. RabbitMQ 예약 시스템 연동
+        val dto = RedisAlarmDto(
+            type = AlarmType.BOSS,
+            targetId = savedTime.id,
+            memberId = 0L,
+            contentId = partyId,
+            title = party.title,
+            message = message
+        )
+        alarmProducer.reserveAlarm(dto, alarmDateTime)
+
+        // 6. 트랜잭션 커밋 후 클라이언트 화면 리프레시 신호 발송
+        TransactionSynchronizationManager.registerSynchronization(object : TransactionSynchronization {
+            override fun afterCommit() {
+                notificationService.sendRefreshSignal(partyId)
+            }
+        })
+    }
+
+    /**
+     * 504 비트 인덱스를 실제 다가올 미래의 LocalDateTime으로 변환하는 내부 유틸 메서드
+     */
+    private fun calculateLocalDateTimeFromIndex(selectedIndex: Int): LocalDateTime {
+        val dayIdx = selectedIndex / 72       // 0=일, 1=월, 2=화, 3=수, 4=목, 5=금, 6=토
+        val timeRowIdx = selectedIndex % 72
+        val hour = timeRowIdx / 3
+        val minute = (timeRowIdx % 3) * 20
+
+        val now = LocalDateTime.now()
+        val todayOfWeek = now.dayOfWeek.value // 1=월, ..., 4=목, ..., 7=일
+
+        // 표준 요일(Java DayOfWeek) 체계를 메이플 목요일 중심 순서(0~6)로 변환하는 함수
+        // 목=0, 금=1, 토=2, 일=3, 월=4, 화=5, 수=6
+        fun getMapleDayValue(javaDayValue: Int): Int {
+            return (javaDayValue - 4 + 7) % 7
+        }
+
+        // 인덱스로부터 들어온 target 요일을 Java DayOfWeek 기준 숫자로 매핑
+        // dayIdx: 0(일)->7, 1(월)->1, 2(화)->2, 3(수)->3, 4(목)->4, 5(금)->5, 6(토)->6
+        val targetJavaDayValue = if (dayIdx == 0) 7 else dayIdx
+
+        val todayMapleOrder = getMapleDayValue(todayOfWeek)
+        val targetMapleOrder = getMapleDayValue(targetJavaDayValue)
+
+        // 두 요일 간의 일수 차이 계산
+        var daysToAdd = targetMapleOrder - todayMapleOrder
+
+        // 만약 target 시간이 오늘 기준 메이플 주간 순서상 지나갔거나,
+        // 오늘인데 시간이 이미 지났다면 다음 주(7일 후)로 미룸
+        if (daysToAdd < 0) {
+            daysToAdd += 7
+        } else if (daysToAdd == 0) {
+            val targetTimeToday = now.withHour(hour).withMinute(minute).withSecond(0).withNano(0)
+            if (now.isAfter(targetTimeToday)) {
+                daysToAdd = 7
+            }
+        }
+
+        return now.plusDays(daysToAdd.toLong())
+            .withHour(hour)
+            .withMinute(minute)
+            .withSecond(0)
+            .withNano(0)
+    }
+
+    /**
+     * 기존의 알람 예약 로직
+     */
     @Transactional
     fun createAlarmTime(partyId: Long, userEmail: String, hour: Int, minute: Int, date: LocalDate, message: String) {
         // 1. 해당 파티에 속한 유저 정보와 역할을 한 번에 조회
@@ -621,7 +900,7 @@ class BossPartyService(
             throw BossPartyCapacityExceededException()
         }
 
-        val character =  mapleCharacterRepository.findById(inviteeId).orElseThrow { MapleCharacterNotFoundException() }
+        val character = mapleCharacterRepository.findById(inviteeId).orElseThrow { MapleCharacterNotFoundException() }
 
         if (character.member.email == userEmail) {
             throw SelfInvitationException()
