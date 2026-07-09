@@ -16,6 +16,8 @@ data class BossPartyDetailResponse(
     val isLeader: Boolean,
     val isPartyAlarmEnabled: Boolean,
     val isChatAlarmEnabled: Boolean,
+    val myAvailableSlots: String?, // 내가 참여 중이 아니라면 null, 참여 중이면 504자 문자열
+    val myKeepNextWeek: Boolean?,
     val alarmDayOfWeek: DayOfWeek?,
     val alarmHour: Int?,
     val alarmMinute: Int?,
