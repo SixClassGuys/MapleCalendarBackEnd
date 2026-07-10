@@ -343,15 +343,39 @@ class BossPartyService(
 
         // 새 대진표(currentCandidates)에서 탈락한 알람들만 골라냅니다.
         val invalidAlarms = activeAlarms.filter { alarm ->
-            val fixedDayOfWeek = alarm.alarmTime.dayOfWeek
+            val fixedDayOfWeek = alarm.alarmTime.dayOfWeek  // 예: DayOfWeek.WEDNESDAY
             val fixedHour = alarm.alarmTime.hour
             val fixedMinute = alarm.alarmTime.minute
             val formattedTime = String.format("%02d:%02d", fixedHour, fixedMinute)
 
-            // 이 알람 시간이 새 대진표에 존재하지 않으면(탈락하면) true
-            currentCandidates.none { candidate ->
-                candidate.dayOfWeek == fixedDayOfWeek.name && candidate.timeRange == formattedTime
+            // 새 대진표 후보군에 이 예약 시간이 살아있는지 검증
+            val isStillValid = currentCandidates.any { candidate ->
+                // 1. 한국어 요일을 영문 DayOfWeek Name으로 매핑
+                val candidateDayInEnglishName = when (candidate.dayOfWeek.trim()) {
+                    "월요일", "월" -> "MONDAY"
+                    "화요일", "화" -> "TUESDAY"
+                    "수요일", "수" -> "WEDNESDAY"
+                    "목요일", "목" -> "THURSDAY"
+                    "금요일", "금" -> "FRIDAY"
+                    "토요일", "토" -> "SATURDAY"
+                    "일요일", "일" -> "SUNDAY"
+                    else -> candidate.dayOfWeek.trim().uppercase() // 혹시 이미 영문일 경우를 대비한 방어 코드
+                }
+
+                // 2. 변환된 영문 요일명끼리 비교 ("WEDNESDAY" == "WEDNESDAY")
+                val startTimeClean = candidate.timeRange.split("~")[0].trim() // "00:40"만 남음
+
+                val dayMatches = candidateDayInEnglishName == fixedDayOfWeek.name
+                val timeMatches = startTimeClean == formattedTime
+
+                println("요일: $candidateDayInEnglishName VS ${fixedDayOfWeek.name}")
+                println("시간: $startTimeClean VS $formattedTime")
+
+                dayMatches && timeMatches
             }
+
+            // 대진표에 존재하지 않는(isStillValid == false) 알람만 필터링하여 invalidAlarms에 적재
+            !isStillValid
         }
 
         var isCanceled = false
@@ -441,7 +465,6 @@ class BossPartyService(
         val responseList = mutableListOf<BossPartyCommonScheduleResponse>()
         val koreanDays = listOf("일요일", "월요일", "화요일", "수요일", "목요일", "금요일", "토요일")
 
-        // 504개 슬롯을 돌며 전원 가능한 '1'인 인덱스만 추출 및 인간이 읽을 수 있는 포맷으로 변환
         for (i in 0 until 504) {
             val isAllAvailable = members.all { it.availableSlots[i] == '1' }
 
@@ -449,18 +472,26 @@ class BossPartyService(
                 val dayIdx = i / 72
                 val hour = (i % 72) / 3
                 val minuteStart = ((i % 72) % 3) * 20
-                val minuteEnd = minuteStart + 20
+                val tempMinuteEnd = minuteStart + 20 // 🚀 임시 종료 분 (40 + 20 = 60이 될 수 있음)
+
+                // 🚀 시간 올림 및 분 보정 연산
+                val endHour = if (tempMinuteEnd == 60) (hour + 1) % 24 else hour
+                val minuteEnd = if (tempMinuteEnd == 60) 0 else tempMinuteEnd
 
                 // 시, 분 포맷팅 (00:00 형태로 맞추기)
                 val startHourStr = hour.toString().padStart(2, '0')
                 val startMinuteStr = minuteStart.toString().padStart(2, '0')
+
+                // 🚀 계산된 종료 시, 분 반영
+                val endHourStr = endHour.toString().padStart(2, '0')
                 val endMinuteStr = minuteEnd.toString().padStart(2, '0')
 
                 responseList.add(
                     BossPartyCommonScheduleResponse(
                         selectedIndex = i,
                         dayOfWeek = koreanDays[dayIdx],
-                        timeRange = "$startHourStr:$startMinuteStr ~ $startHourStr:$endMinuteStr"
+                        // 🚀 결과물: "00:40 ~ 01:00" 형태로 완벽하게 포맷팅
+                        timeRange = "$startHourStr:$startMinuteStr ~ $endHourStr:$endMinuteStr"
                     )
                 )
             }
