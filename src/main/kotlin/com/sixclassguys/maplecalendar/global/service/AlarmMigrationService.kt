@@ -1,5 +1,6 @@
 package com.sixclassguys.maplecalendar.global.service
 
+import com.sixclassguys.maplecalendar.domain.boss.enums.AlarmRole
 import com.sixclassguys.maplecalendar.domain.boss.repository.BossPartyAlarmTimeRepository
 import com.sixclassguys.maplecalendar.domain.eventalarm.repository.EventAlarmTimeRepository
 import com.sixclassguys.maplecalendar.global.dto.AlarmType
@@ -38,6 +39,7 @@ class AlarmMigrationService(
                         title = "⏰ 이벤트 알림",
                         message = "[${time.eventAlarm.event.title}] 설정하신 알람 시간입니다!",
                         contentId = 0L,
+                        alarmRole = AlarmRole.NORMAL
                     ), time.alarmTime
                 )
             }
@@ -54,7 +56,8 @@ class AlarmMigrationService(
                     contentId = time.bossPartyId, // 수정된 필드 사용
                     memberId = 0L,              // 파티 단위 발송이므로 0 처리
                     title = "⚔️ 보스 파티 알림",
-                    message = time.message
+                    message = time.message,
+                    alarmRole = time.alarmRole
                 )
                 alarmProducer.reserveAlarm(dto, time.alarmTime)
                 bossCount++

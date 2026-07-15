@@ -21,6 +21,7 @@ import com.sixclassguys.maplecalendar.domain.boss.entity.BossPartyAlarmTime
 import com.sixclassguys.maplecalendar.domain.boss.entity.BossPartyChatMessage
 import com.sixclassguys.maplecalendar.domain.boss.entity.BossPartyMember
 import com.sixclassguys.maplecalendar.domain.boss.entity.MemberBossPartyMapping
+import com.sixclassguys.maplecalendar.domain.boss.enums.AlarmRole
 import com.sixclassguys.maplecalendar.domain.boss.enums.JoinStatus
 import com.sixclassguys.maplecalendar.domain.boss.enums.PartyRole
 import com.sixclassguys.maplecalendar.domain.boss.repository.BossPartyChatMessageRepository
@@ -203,7 +204,7 @@ class BossPartyService(
         // 2. 🔔 미발송 알람 리스트 조회 (isSent = false)
         val alarmTimes = bossPartyAlarmTimeRepository
             .findByBossPartyIdAndIsSentFalseOrderByAlarmTimeAsc(partyId)
-            .filter { it.alarmTime.isAfter(now) }
+            .filter { it.alarmTime.isAfter(now) }.filter { it.alarmRole == AlarmRole.START }
             .map {
                 BossPartyAlarmTimeResponse(
                     id = it.id,
@@ -342,15 +343,14 @@ class BossPartyService(
         val activeAlarms = bossPartyAlarmTimeRepository.findByBossPartyIdAndIsSentFalseOrderByAlarmTimeAsc(bossPartyId)
 
         // 새 대진표(currentCandidates)에서 탈락한 알람들만 골라냅니다.
-        val invalidAlarms = activeAlarms.filter { alarm ->
-            val fixedDayOfWeek = alarm.alarmTime.dayOfWeek  // 예: DayOfWeek.WEDNESDAY
+        val startAlarms = activeAlarms.filter { it.alarmRole == AlarmRole.START }
+        val invalidStartAlarms = startAlarms.filter { alarm ->
+            val fixedDayOfWeek = alarm.alarmTime.dayOfWeek
             val fixedHour = alarm.alarmTime.hour
             val fixedMinute = alarm.alarmTime.minute
             val formattedTime = String.format("%02d:%02d", fixedHour, fixedMinute)
 
-            // 새 대진표 후보군에 이 예약 시간이 살아있는지 검증
             val isStillValid = currentCandidates.any { candidate ->
-                // 1. 한국어 요일을 영문 DayOfWeek Name으로 매핑
                 val candidateDayInEnglishName = when (candidate.dayOfWeek.trim()) {
                     "월요일", "월" -> "MONDAY"
                     "화요일", "화" -> "TUESDAY"
@@ -359,23 +359,27 @@ class BossPartyService(
                     "금요일", "금" -> "FRIDAY"
                     "토요일", "토" -> "SATURDAY"
                     "일요일", "일" -> "SUNDAY"
-                    else -> candidate.dayOfWeek.trim().uppercase() // 혹시 이미 영문일 경우를 대비한 방어 코드
+                    else -> candidate.dayOfWeek.trim().uppercase()
                 }
+                val startTimeClean = candidate.timeRange.split("~")[0].trim()
 
-                // 2. 변환된 영문 요일명끼리 비교 ("WEDNESDAY" == "WEDNESDAY")
-                val startTimeClean = candidate.timeRange.split("~")[0].trim() // "00:40"만 남음
-
-                val dayMatches = candidateDayInEnglishName == fixedDayOfWeek.name
-                val timeMatches = startTimeClean == formattedTime
-
-                println("요일: $candidateDayInEnglishName VS ${fixedDayOfWeek.name}")
-                println("시간: $startTimeClean VS $formattedTime")
-
-                dayMatches && timeMatches
+                candidateDayInEnglishName == fixedDayOfWeek.name && startTimeClean == formattedTime
             }
-
-            // 대진표에 존재하지 않는(isStillValid == false) 알람만 필터링하여 invalidAlarms에 적재
             !isStillValid
+        }
+
+        // 🚀 3. [핵심] 탈락한 시작 알람이 존재한다면, 그와 세트인 '종료 알람(END)'까지 모조리 포함시킵니다.
+        val invalidAlarms = if (invalidStartAlarms.isNotEmpty()) {
+            // 탈락한 시작 알람들과 + 그 시작 알람 1시간 뒤(또는 같은 주차)에 존재하는 END 알람들을 모두 묶음
+            activeAlarms.filter { activeAlarm ->
+                invalidStartAlarms.any { startAlarm ->
+                    // 같은 파티이면서, 시작 알람이거나, 그 시작 알람에 묶인 종료 알람인 경우
+                    activeAlarm.id == startAlarm.id ||
+                            (activeAlarm.alarmRole == AlarmRole.END && activeAlarm.alarmTime == startAlarm.alarmTime.plusMinutes(20))
+                }
+            }
+        } else {
+            emptyList()
         }
 
         var isCanceled = false
@@ -385,12 +389,13 @@ class BossPartyService(
         var canceledSchedulesText = ""
 
         if (invalidAlarms.isNotEmpty()) {
-            println("🚨 새 대진표에서 탈락한 알람 ${invalidAlarms.size}개 감지. 폭파 절차 돌입.")
+            println("🚨 새 대진표에서 탈락한 알람 세트 ${invalidAlarms.size}개 감지. (START & END 폭파)")
             isCanceled = true
             triggerName = bpm.character.characterName
 
-            // UI 체감용 취소 시간대 안내 텍스트 조립 (예: "목요일 19:00, 토요일 21:00")
-            canceledSchedulesText = invalidAlarms.joinToString(", ") { alarm ->
+            // 🚀 4. 알림 텍스트 조립 및 발송은 유저들이 헷갈리지 않게 '시작 알람(START)' 기준 정보만 모아서 보여줍니다.
+            val displayTargetAlarms = invalidAlarms.filter { it.alarmRole == AlarmRole.START }
+            canceledSchedulesText = displayTargetAlarms.joinToString(", ") { alarm ->
                 val dayKorean = when(alarm.alarmTime.dayOfWeek) {
                     DayOfWeek.MONDAY -> "월"
                     DayOfWeek.TUESDAY -> "화"
@@ -403,13 +408,13 @@ class BossPartyService(
                 String.format("%s요일 %02d:%02d", dayKorean, alarm.alarmTime.hour, alarm.alarmTime.minute)
             }
 
-            // A. 탈락한 알람들만 DB 예약 테이블에서 조용히 삭제합니다.
+            // A. 탈락한 알람들(START, END 2개 모두) DB 예약 테이블에서 조용히 삭제
             val invalidAlarmIds = invalidAlarms.map { it.id }
             bossPartyAlarmTimeRepository.deleteByIdIn(invalidAlarmIds)
 
-            // B. 가이드라인 필드 동기화 (기존 필드가 탈락한 시간 목록에 포함되어 있다면 null 처리)
+            // B. 메인 가이드라인 필드 변동 시 초기화
             if (bossParty.alarmDayOfWeek != null) {
-                val isMainAlarmInvalid = invalidAlarms.any {
+                val isMainAlarmInvalid = displayTargetAlarms.any {
                     it.alarmTime.dayOfWeek == bossParty.alarmDayOfWeek && it.alarmTime.hour == bossParty.alarmHour
                 }
                 if (isMainAlarmInvalid) {
@@ -417,13 +422,12 @@ class BossPartyService(
                 }
             }
 
-            // C. 커밋 성공 후 FCM 푸시 발송 (취소된 알람들을 루프 돌며 각각 쏘거나, 묶어서 쏩니다)
+            // C. 커밋 성공 후 FCM 푸시 발송 (유저들에게는 "출발 시간 취소" 알림 1번만 깔끔하게 쏩니다)
             TransactionSynchronizationManager.registerSynchronization(object : TransactionSynchronization {
                 override fun afterCommit() {
 
-                    // 💡 기존 취소 함수를 살려 invalidAlarms를 순회하며 각각 전송하거나
-                    // 텍스트를 통째로 넘겨 한 번에 알릴 수 있도록 유연하게 가시면 됩니다.
-                    invalidAlarms.forEach { alarm ->
+                    // 알람 리스트 중 START 알람에 대해서만 취소 푸시 발송 (종료 취소 푸시까지 쏘면 유저들에게 스팸이 됩니다)
+                    displayTargetAlarms.forEach { alarm ->
                         notificationService.sendBossPartyScheduleCanceledAlarm(
                             partyId = bossPartyId,
                             partyTitle = bossParty.title,
@@ -532,35 +536,62 @@ class BossPartyService(
         bossPartyAlarmTimeRepository.flush()
 
         // 3. 목요일 기준 주차 룰을 반영하여 타겟 시간 계산
-        val alarmDateTime = calculateLocalDateTimeFromIndex(selectedIndex)
+        val startDateTime = calculateLocalDateTimeFromIndex(selectedIndex)
+        val endDateTime = startDateTime.plusMinutes(20)
 
-        if (alarmDateTime.isBefore(LocalDateTime.now())) {
+        if (startDateTime.isBefore(LocalDateTime.now())) {
             throw InvalidAlarmTimeException()
         }
 
-        // 4. 새 알람 시간 데이터 저장
-        val savedTime = bossPartyAlarmTimeRepository.save(
+        // 4. 새 알람 예약 정보 더블 서브밋 (시작 알람 & 종료 알람)
+        val startAlarm = bossPartyAlarmTimeRepository.save(
             BossPartyAlarmTime(
                 bossPartyId = partyId,
-                alarmTime = alarmDateTime,
-                message = message,
-                registrationMode = RegistrationMode.SELECT
+                alarmTime = startDateTime,
+                message = message, // 예: "잠시 후 보스 출발 시간입니다!"
+                registrationMode = RegistrationMode.SELECT,
+                alarmRole = AlarmRole.START
             )
         )
 
-        // 5. RabbitMQ 예약 시스템 연동
-        val dto = RedisAlarmDto(
+        val endAlarm = bossPartyAlarmTimeRepository.save(
+            BossPartyAlarmTime(
+                bossPartyId = partyId,
+                alarmTime = endDateTime,
+                message = "보스를 클리어하고 결과를 기록해 보세요!", // 🚀 종료 유도 전용 고정 메시지
+                registrationMode = RegistrationMode.SELECT,
+                alarmRole = AlarmRole.END
+            )
+        )
+
+        // 5. RabbitMQ 예약 시스템 연동 (각각 다른 예약 발송 처리)
+        // 💡 팁: RabbitMQ를 받아 처리하는 Consumer 단에서
+        // alarmRole을 판별하여 메시지 템플릿과 이동 대상을 분기할 수 있도록 DTO에 alarmRole을 실어 보냅니다.
+        val startDto = RedisAlarmDto(
             type = AlarmType.BOSS,
-            targetId = savedTime.id,
+            targetId = startAlarm.id,
             memberId = 0L,
             contentId = partyId,
             title = party.title,
-            message = message
+            message = startAlarm.message,
+            alarmRole = AlarmRole.START
         )
-        alarmProducer.reserveAlarm(dto, alarmDateTime)
+        alarmProducer.reserveAlarm(startDto, startDateTime)
+
+        val endDto = RedisAlarmDto(
+            type = AlarmType.BOSS,
+            targetId = endAlarm.id,
+            memberId = 0L,
+            contentId = partyId,
+            title = party.title,
+            message = endAlarm.message,
+            alarmRole = AlarmRole.END
+        )
+        alarmProducer.reserveAlarm(endDto, endDateTime)
 
         // 6. 트랜잭션 커밋 후 클라이언트 화면 리프레시 신호 발송
         TransactionSynchronizationManager.registerSynchronization(object : TransactionSynchronization {
+
             override fun afterCommit() {
                 notificationService.sendRefreshSignal(partyId)
             }
@@ -652,7 +683,8 @@ class BossPartyService(
             memberId = 0L, // 개별 전송이 아니므로 0 또는 공백 처리
             contentId = partyId, // DTO에 partyId 필드 추가 필요
             title = party.title,
-            message = message
+            message = message,
+            alarmRole = AlarmRole.NORMAL
         )
         alarmProducer.reserveAlarm(dto, alarmDateTime)
 
@@ -750,7 +782,8 @@ class BossPartyService(
                         memberId = 0L,
                         contentId = partyId,
                         title = party.title,
-                        message = request.message
+                        message = request.message,
+                        alarmRole = AlarmRole.NORMAL
                     )
                     alarmProducer.reserveAlarm(dto, nextAlarmTime)
                 }
