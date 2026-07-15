@@ -5,6 +5,7 @@ import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.Message
 import com.google.firebase.messaging.Notification
 import com.sixclassguys.maplecalendar.domain.boss.entity.BossPartyAlarmTime
+import com.sixclassguys.maplecalendar.domain.boss.enums.AlarmRole
 import com.sixclassguys.maplecalendar.domain.boss.enums.BossDifficulty
 import com.sixclassguys.maplecalendar.domain.boss.enums.BossType
 import com.sixclassguys.maplecalendar.domain.boss.enums.JoinStatus
@@ -684,12 +685,13 @@ class NotificationService(
 
     private fun sendFcmPush(member: Member, alarm: RedisAlarmDto) {
         val messages = mutableListOf<Message>()
+        val body = if (alarm.alarmRole == AlarmRole.END) "보스를 클리어하셨다면 기록을 남겨보세요." else alarm.message
 
         member.tokens.forEach { tokenEntity ->
             val message = Message.builder()
                 .setToken(tokenEntity.token)
                 .putData("title", alarm.title)
-                .putData("body", alarm.message)
+                .putData("body", body)
                 .putData("type", alarm.type.name)
                 .putData("targetId", alarm.targetId.toString())
                 .putData("contentId", alarm.contentId.toString()) // 추가 정보가 있다면 포함

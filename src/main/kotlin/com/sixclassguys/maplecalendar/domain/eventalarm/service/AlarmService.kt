@@ -1,5 +1,6 @@
 package com.sixclassguys.maplecalendar.domain.eventalarm.service
 
+import com.sixclassguys.maplecalendar.domain.boss.enums.AlarmRole
 import com.sixclassguys.maplecalendar.domain.event.dto.EventResponse
 import com.sixclassguys.maplecalendar.domain.eventalarm.dto.AlarmRequest
 import com.sixclassguys.maplecalendar.domain.eventalarm.entity.EventAlarm
@@ -73,7 +74,8 @@ class AlarmService(
                 memberId = member.id,
                 contentId = newTime.eventAlarm.event.id,
                 title = "⏰ 설정하신 이벤트 알림 시간이에요!",
-                message = "[${event.title}] $dDayText"
+                message = "[${event.title}] $dDayText",
+                alarmRole = AlarmRole.NORMAL
             )
             alarmProducer.reserveAlarm(dto, newTime.alarmTime)
         }

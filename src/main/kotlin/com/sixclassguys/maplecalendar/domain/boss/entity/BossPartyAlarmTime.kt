@@ -1,5 +1,6 @@
 package com.sixclassguys.maplecalendar.domain.boss.entity
 
+import com.sixclassguys.maplecalendar.domain.boss.enums.AlarmRole
 import com.sixclassguys.maplecalendar.domain.boss.enums.RegistrationMode
 import jakarta.persistence.*
 import java.time.LocalDateTime
@@ -21,6 +22,10 @@ class BossPartyAlarmTime(
     @Enumerated(EnumType.STRING)
     @Column(name = "registration_mode", nullable = false)
     val registrationMode: RegistrationMode,
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "alarm_role", nullable = false)
+    val alarmRole: AlarmRole = AlarmRole.START,
 
     @Column(nullable = false, length = 500)
     val message: String,
